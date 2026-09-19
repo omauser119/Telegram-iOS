@@ -71,12 +71,11 @@ private struct WalletDashboard: View {
                         Spacer()
                         Button(action: { self.balanceVisible.toggle() }) {
                             Image(systemName: self.balanceVisible ? "eye" : "eye.slash")
-                        }.accessibilityLabel(self.balanceVisible ? "Hide balance" : "Show balance")
+                        }.accessibility(label: Text(self.balanceVisible ? "Hide balance" : "Show balance"))
                     }
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(self.balanceVisible ? "—" : "••••••")
-                            .font(.system(size: 42, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
+                            .font(Font.system(size: 42, weight: .semibold, design: .rounded).monospacedDigit())
                         Text("GRAM").font(.title)
                     }
                 }
@@ -85,14 +84,14 @@ private struct WalletDashboard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(LinearGradient(gradient: Gradient(colors: [Color(red: 0.03, green: 0.38, blue: 0.68), Color(red: 0.02, green: 0.22, blue: 0.46)]), startPoint: .topLeading, endPoint: .bottomTrailing))
                 .cornerRadius(20)
-                .accessibilityIdentifier("wallet-balance")
+                .accessibility(identifier: "wallet-balance")
 
                 if self.isSend {
                     Text("Send Money to \(self.model.recipient)").font(.headline)
                     TextField("0 GRAM", text: self.$amount)
                         .keyboardType(.decimalPad)
                         .font(.largeTitle)
-                        .accessibilityIdentifier("wallet-send-amount")
+                        .accessibility(identifier: "wallet-send-amount")
                     Text("Transfers are not available in this preview.").foregroundColor(.secondary)
                     Button("Send") {}.disabled(true)
                 } else {
@@ -105,7 +104,7 @@ private struct WalletDashboard: View {
                     Text("Wallet activity is not available yet.").foregroundColor(.secondary)
                 }
                 Text(self.model.notice).font(.callout)
-                    .accessibilityIdentifier("wallet-service-status")
+                    .accessibility(identifier: "wallet-service-status")
                 if self.model.loading {
                     Text("Loading…").foregroundColor(.secondary)
                 } else {
