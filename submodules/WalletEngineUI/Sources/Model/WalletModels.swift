@@ -1,7 +1,7 @@
 import Foundation
 
 @available(iOS 18.0, *)
-enum StoredWalletNetwork: String, Codable, Sendable {
+nonisolated enum StoredWalletNetwork: String, Codable, Sendable {
     case mainnet
     case testnet
 }
@@ -9,7 +9,7 @@ enum StoredWalletNetwork: String, Codable, Sendable {
 /// Public wallet metadata persisted by the example application.
 /// Recovery words are stored only by `AppleWalletPlatformHost`.
 @available(iOS 18.0, *)
-struct StoredWallet: Codable, Identifiable, Sendable {
+nonisolated struct StoredWallet: Codable, Identifiable, Sendable {
     let recordId: String
     let address: String
     /// Public derivation data required to reconstruct the wallet account.
@@ -22,7 +22,7 @@ struct StoredWallet: Codable, Identifiable, Sendable {
 }
 
 @available(iOS 18.0, *)
-struct WalletAccountSnapshot: Sendable {
+nonisolated struct WalletAccountSnapshot: Sendable {
     let balanceNanograms: String
     let status: String
     let syncUtime: UInt64
@@ -33,7 +33,7 @@ struct WalletAccountSnapshot: Sendable {
 }
 
 @available(iOS 18.0, *)
-struct WalletTransaction: Identifiable, Sendable {
+nonisolated struct WalletTransaction: Identifiable, Sendable {
     let id: String
     let transactionHash: String
     let logicalTime: String

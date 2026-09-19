@@ -1,7 +1,7 @@
 import Foundation
 
 @available(iOS 18.0, *)
-struct WalletArchive: Codable, Sendable {
+nonisolated struct WalletArchive: Codable, Sendable {
     static let currentVersion = 3
 
     let version: Int
