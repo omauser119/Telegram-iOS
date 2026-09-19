@@ -1,6 +1,7 @@
 import Foundation
 
 /// Supplies endpoint and storage overrides used by an isolated client test run.
+@available(iOS 18.0, *)
 nonisolated struct AppleRuntimeConfiguration: Sendable {
     static let current = AppleRuntimeConfiguration()
 

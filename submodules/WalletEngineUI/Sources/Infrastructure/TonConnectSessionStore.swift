@@ -1,6 +1,7 @@
 import Foundation
 import Security
 
+@available(iOS 18.0, *)
 nonisolated struct StoredTonConnectSession: Codable, Sendable {
     let rustSession: String
     let manifestURL: String
@@ -10,6 +11,7 @@ nonisolated struct StoredTonConnectSession: Codable, Sendable {
 }
 
 /// Keychain-backed storage for secret-bearing TON Connect session keys.
+@available(iOS 18.0, *)
 actor TonConnectSessionStore {
     static let shared = TonConnectSessionStore()
 
@@ -86,6 +88,7 @@ actor TonConnectSessionStore {
     }
 }
 
+@available(iOS 18.0, *)
 nonisolated enum TonConnectSessionStoreError: LocalizedError, Sendable {
     case keychain(OSStatus)
 

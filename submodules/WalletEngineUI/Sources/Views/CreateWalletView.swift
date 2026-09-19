@@ -1,6 +1,7 @@
 import SwiftUI
 import WalletEngineFFI
 
+@available(iOS 18.0, *)
 struct CreateWalletView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -294,6 +295,7 @@ struct CreateWalletView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private extension CreateWalletView {
     enum Operation: Equatable {
         case idle
@@ -316,6 +318,7 @@ private extension CreateWalletView {
     }
 }
 
+@available(iOS 18.0, *)
 private struct CreateWalletForm: View {
     @Binding var walletName: String
     let errorMessage: String?
@@ -354,6 +357,7 @@ private struct CreateWalletForm: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct WalletCreationIntroduction: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -383,6 +387,7 @@ private struct WalletCreationIntroduction: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct RecoveryPhraseView: View {
     let descriptor: WalletDescriptor
     let words: [String]
@@ -437,6 +442,7 @@ private struct RecoveryPhraseView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct RecoveryWordsGrid: View {
     private let numberedWords: [NumberedRecoveryWord]
 
@@ -475,6 +481,7 @@ private struct RecoveryWordsGrid: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct NumberedRecoveryWord: Identifiable {
     let number: Int
     let word: String
@@ -482,6 +489,7 @@ private struct NumberedRecoveryWord: Identifiable {
     var id: Int { number }
 }
 
+@available(iOS 18.0, *)
 private struct WalletCreationError: View {
     let message: String
 

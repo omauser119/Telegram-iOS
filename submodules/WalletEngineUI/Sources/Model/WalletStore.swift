@@ -1,5 +1,6 @@
 import Foundation
 
+@available(iOS 18.0, *)
 struct WalletArchive: Codable, Sendable {
     static let currentVersion = 3
 
@@ -14,6 +15,7 @@ struct WalletArchive: Codable, Sendable {
     )
 }
 
+@available(iOS 18.0, *)
 nonisolated struct WalletStore: Sendable {
     let namespace: String
     private nonisolated var fileURL: URL {

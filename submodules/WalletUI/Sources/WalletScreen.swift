@@ -12,6 +12,7 @@ import WalletEngineUI
 import AttachmentUI
 
 /// Hosts the adapted wallet-engine Swift example inside Telegram navigation.
+@available(iOS 18.0, *)
 public final class WalletScreen: ViewController, AttachmentContainable {
     public var requestAttachmentMenuExpansion: () -> Void = {}
     public var updateNavigationStack: (@escaping ([AttachmentContainable]) -> ([AttachmentContainable], AttachmentMediaPickerContext?)) -> Void = { _ in }

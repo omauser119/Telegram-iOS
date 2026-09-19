@@ -6,6 +6,7 @@ import Security
 import WalletEngineFFI
 
 /// Wall clock used only for protocol timestamps such as `valid_until`.
+@available(iOS 18.0, *)
 actor AppleWalletClock {
     func now() -> UInt64 {
         let seconds = Date.now.timeIntervalSince1970.rounded(.down)
@@ -17,6 +18,7 @@ actor AppleWalletClock {
 /// Resolves opaque  secret references through the system Keychain.
 /// A reference identifies an item; Rust never receives the Keychain service
 /// name or any persistence details.
+@available(iOS 18.0, *)
 actor AppleWalletProtectedSecretStore {
     private let service: String
 
@@ -279,6 +281,7 @@ actor AppleWalletProtectedSecretStore {
 ///
 /// The journal never stores a mnemonic. Its opaque payload is produced by
 /// Rust and is written atomically before a prepared transfer may be submitted.
+@available(iOS 18.0, *)
 actor AppleWalletJournalStore {
     static let shared = AppleWalletJournalStore()
 
@@ -547,6 +550,7 @@ actor AppleWalletJournalStore {
 
 /// Aggregate implementation exposed to Rust through one UniFFI callback
 /// object. The individual capabilities stay independently replaceable.
+@available(iOS 18.0, *)
 actor AppleWalletPlatformHost: WalletPlatformHost {
     private let clock: AppleWalletClock
     private let secrets: AppleWalletProtectedSecretStore
@@ -597,6 +601,7 @@ actor AppleWalletPlatformHost: WalletPlatformHost {
     }
 }
 
+@available(iOS 18.0, *)
 private nonisolated func sanitized(_ message: String) -> String {
     String(
         message.unicodeScalars

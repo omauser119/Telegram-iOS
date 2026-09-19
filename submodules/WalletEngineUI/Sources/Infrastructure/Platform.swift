@@ -2,12 +2,15 @@ import SwiftUI
 
 #if os(macOS)
 import AppKit
+@available(iOS 18.0, *)
 typealias PlatformImage = NSImage
 #elseif os(iOS)
 import UIKit
+@available(iOS 18.0, *)
 typealias PlatformImage = UIImage
 #endif
 
+@available(iOS 18.0, *)
 extension Color {
     static var platformWindowBackground: Color {
 #if os(macOS)
@@ -18,6 +21,7 @@ extension Color {
     }
 }
 
+@available(iOS 18.0, *)
 enum PlatformPasteboard {
     static func copy(_ value: String) {
 #if os(macOS)
@@ -29,6 +33,7 @@ enum PlatformPasteboard {
     }
 }
 
+@available(iOS 18.0, *)
 enum PlatformCopy {
     static var localDeviceName: String {
 #if os(macOS)
@@ -47,6 +52,7 @@ enum PlatformCopy {
     }
 }
 
+@available(iOS 18.0, *)
 extension View {
     @ViewBuilder
     func platformTonConnectLinkInput() -> some View {

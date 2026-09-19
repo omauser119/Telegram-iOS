@@ -1,6 +1,7 @@
 import SwiftUI
 import WalletEngineFFI
 
+@available(iOS 18.0, *)
 struct TonConnectView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -268,6 +269,7 @@ struct TonConnectView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct ConnectApprovalView: View {
     let manifest: TonConnectManifest
     let requestsProof: Bool
@@ -280,6 +282,7 @@ private struct ConnectApprovalView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct TonConnectAppIdentityView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var appIconSize = 76.0
 
@@ -337,6 +340,7 @@ private struct TonConnectAppIdentityView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private enum TonConnectAppStatus {
     case connected
 
@@ -362,6 +366,7 @@ private enum TonConnectAppStatus {
     }
 }
 
+@available(iOS 18.0, *)
 private struct TonConnectPermissionsCard: View {
     @ScaledMetric(relativeTo: .body) private var iconColumnWidth = 28.0
 
@@ -399,6 +404,7 @@ private struct TonConnectPermissionsCard: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct TonConnectCapabilityRow: View {
     let title: String
     let detail: String
@@ -424,6 +430,7 @@ private struct TonConnectCapabilityRow: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct TonConnectTransactionView: View {
     let manifest: TonConnectManifest
     let preview: TonConnectTransactionPreview
@@ -566,6 +573,7 @@ private struct TonConnectTransactionView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct ConnectedDAppView: View {
     let connection: TonConnectConnection
     let isWorking: Bool
@@ -589,6 +597,7 @@ private struct ConnectedDAppView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct PreviewRow: View {
     let label: String
     let value: String

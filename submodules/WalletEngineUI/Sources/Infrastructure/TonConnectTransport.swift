@@ -1,6 +1,7 @@
 import Foundation
 import WalletEngineFFI
 
+@available(iOS 18.0, *)
 nonisolated final class TonConnectRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let allowSelfSignedLoopback: Bool
 
@@ -39,6 +40,7 @@ nonisolated final class TonConnectRedirectDelegate: NSObject, URLSessionTaskDele
 }
 
 /// Native HTTP bridge and manifest transport. Protocol bytes stay opaque.
+@available(iOS 18.0, *)
 actor TonConnectTransport {
     private static let maximumManifestBytes = 256 * 1024
 
@@ -140,6 +142,7 @@ actor TonConnectTransport {
     }
 }
 
+@available(iOS 18.0, *)
 nonisolated enum TonConnectTransportError: LocalizedError, Sendable {
     case invalidUrl
     case invalidResponse

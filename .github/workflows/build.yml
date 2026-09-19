@@ -173,7 +173,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             /Users/Shared/telegram-ios/third-party/wallet-engine/target
-          key: wallet-engine-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third-party/wallet-engine/Cargo.lock', 'third-party/wallet-engine/xtask/Cargo.lock', 'third-party/wallet-engine/bindgen/apple/Cargo.lock', 'versions.json') }}
+          key: wallet-engine-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/wallet/build-engine.sh', 'third-party/wallet-engine/Cargo.lock', 'third-party/wallet-engine/xtask/Cargo.lock', 'third-party/wallet-engine/bindgen/apple/Cargo.lock', 'versions.json') }}
 
       - name: Build Wallet Engine
         run: |

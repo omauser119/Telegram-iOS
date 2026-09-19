@@ -3,6 +3,7 @@ import Observation
 import WalletEngineFFI
 
 /// Composition root for the Apple host callbacks.
+@available(iOS 18.0, *)
 nonisolated struct AppleWalletEnvironment: Sendable {
     let platformHost: AppleWalletPlatformHost
     let store: WalletStore
@@ -115,6 +116,7 @@ nonisolated struct AppleWalletEnvironment: Sendable {
 /// cannot overwrite a newer publication from `waitForChange`.
 @MainActor
 @Observable
+@available(iOS 18.0, *)
 final class WalletSession {
     private(set) var snapshot: WalletSnapshot
     private(set) var lastUpdate: WalletUpdate?
@@ -423,6 +425,7 @@ final class WalletSession {
     }
 }
 
+@available(iOS 18.0, *)
 enum WalletSessionError: Error, Sendable {
     case missingPublicKey
     case shutDown

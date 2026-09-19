@@ -6,6 +6,7 @@ import TelegramApi
 import SwiftSignalKit
 import WalletEngineUI
 
+@available(iOS 18.0, *)
 private enum WalletTransportError: LocalizedError {
     case rpc(Int, String)
     case invalidResponse
@@ -19,6 +20,7 @@ private enum WalletTransportError: LocalizedError {
 
 /// Owns cancellation and continuation completion even when an RPC completes
 /// synchronously or cancellation races with the network callback.
+@available(iOS 18.0, *)
 private final class WalletRPCOperation: @unchecked Sendable {
     private let lock = NSLock()
     private let disposable = MetaDisposable()
@@ -48,6 +50,7 @@ private final class WalletRPCOperation: @unchecked Sendable {
     }
 }
 
+@available(iOS 18.0, *)
 final class TelegramWalletTransport: WalletProviderTransport, @unchecked Sendable {
     private let context: AccountContext
     private let recipient: TelegramUser?

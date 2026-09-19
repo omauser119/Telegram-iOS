@@ -5,6 +5,7 @@ import WalletEngineFFI
 ///
 /// Rust owns request construction and response parsing. The host owns transport,
 /// credentials, redirect rejection, and byte limits.
+@available(iOS 18.0, *)
 nonisolated struct AppleWalletHTTPPolicy: Sendable {
     fileprivate enum Limits {
         static let maximumRequestBodyBytes = 256 * 1024
@@ -236,6 +237,7 @@ nonisolated struct AppleWalletHTTPPolicy: Sendable {
 ///
 /// The registry provides explicit cancellation even when Rust cancels before
 /// URLSession has created its underlying task.
+@available(iOS 18.0, *)
 actor AppleWalletHTTPHost: WalletHttpHost {
     private static let maximumEarlyCancellations = 256
     private static let maximumRequestTimeout: TimeInterval = 5 * 60
@@ -448,6 +450,7 @@ actor AppleWalletHTTPHost: WalletHttpHost {
     }
 }
 
+@available(iOS 18.0, *)
 private nonisolated final class WalletHTTPRedirectDelegate: NSObject,
     URLSessionTaskDelegate,
     @unchecked Sendable

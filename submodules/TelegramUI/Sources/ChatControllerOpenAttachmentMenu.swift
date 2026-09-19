@@ -232,7 +232,7 @@ extension ChatControllerImpl {
             }
             
             var availableButtons: [AttachmentButtonType] = [.gallery, .file]
-            if let user = self.presentationInterfaceState.renderedPeer?.peer as? TelegramUser,
+            if #available(iOS 18.0, *), let user = self.presentationInterfaceState.renderedPeer?.peer as? TelegramUser,
                user.botInfo == nil, user.id != context.account.peerId, banSendText == nil {
                 availableButtons.append(.money)
             }
@@ -866,6 +866,7 @@ extension ChatControllerImpl {
                             return false
                         }
                     case .money:
+                        guard #available(iOS 18.0, *) else { return false }
                         if let peer = strongSelf.presentationInterfaceState.renderedPeer?.peer {
                             let controller = WalletScreen(context: context, recipientId: peer.id)
                             completion(controller, controller.mediaPickerContext)

@@ -2,6 +2,7 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 import WalletEngineFFI
 
+@available(iOS 18.0, *)
 public struct WalletEngineView: View {
     private let environment: AppleWalletEnvironment
     private let onClose: @MainActor () -> Void
@@ -40,10 +41,12 @@ public struct WalletEngineView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private enum WalletSection: Hashable {
     case settings
 }
 
+@available(iOS 18.0, *)
 private enum AppAppearance: String, CaseIterable, Identifiable {
     case system = "System"
     case light = "Light"
@@ -60,6 +63,7 @@ private enum AppAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+@available(iOS 18.0, *)
 struct SettingsView: View {
     @AppStorage("isBalanceVisible") private var isBalanceVisible = true
     @AppStorage("appAppearance") private var appAppearance = AppAppearance.system.rawValue
@@ -123,6 +127,7 @@ struct SettingsView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct WalletDashboard: View {
     @Binding var isBalanceVisible: Bool
 
@@ -691,6 +696,7 @@ private struct WalletDashboard: View {
 
 }
 
+@available(iOS 18.0, *)
 private enum WalletSheet: String, Identifiable {
     case create
     case rename
@@ -707,6 +713,7 @@ private enum WalletSheet: String, Identifiable {
 /// asynchronous TON Connect state. Keeping the observation in a child view
 /// makes SwiftUI track the coordinator's `approval` property directly, so an
 /// incoming request can present a sheet even when no TON Connect sheet is open.
+@available(iOS 18.0, *)
 private struct TonConnectApprovalObserver: View {
     let coordinator: TonConnectCoordinator
     let onApproval: () -> Void
@@ -721,6 +728,7 @@ private struct TonConnectApprovalObserver: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct EmptyWalletState: View {
     let onCreate: () -> Void
 
@@ -736,6 +744,7 @@ private struct EmptyWalletState: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct RenameWalletView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -829,6 +838,7 @@ private struct RenameWalletView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct BalancePanel: View {
     @Binding var isBalanceVisible: Bool
     let account: WalletAccountSnapshot?
@@ -931,6 +941,7 @@ private struct BalancePanel: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct WalletDataNotice: View {
     let diagnostic: String?
     let onRetry: () -> Void
@@ -1005,6 +1016,7 @@ private struct WalletDataNotice: View {
 /// A compact diagnostic banner for errors that do not have a retry action.
 /// Dismissal changes presentation only; the caller decides whether to clear the
 /// underlying model error as well.
+@available(iOS 18.0, *)
 struct DismissibleDiagnostic: View {
     let message: String
     let systemImage: String
@@ -1048,6 +1060,7 @@ struct DismissibleDiagnostic: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct WalletActions: View {
     let onSend: () -> Void
     let onReceive: () -> Void
@@ -1073,6 +1086,7 @@ private struct WalletActions: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct RecentActivity: View {
     let transactions: [WalletTransaction]
     let isLoading: Bool
@@ -1166,6 +1180,7 @@ private struct RecentActivity: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct ActivityRow: View {
     let transaction: WalletTransaction
 
@@ -1223,6 +1238,7 @@ private struct ActivityRow: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct TransactionDetailView: View {
     let transaction: WalletTransaction
     @ScaledMetric(relativeTo: .largeTitle) private var amountFontSize = 38.0
@@ -1335,6 +1351,7 @@ private struct TransactionDetailView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct TransactionValueRow: View {
     let title: String
     let value: String
@@ -1414,6 +1431,7 @@ private struct TransactionValueRow: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct ActivityPlaceholder: View {
     let icon: String
     let title: String
@@ -1438,6 +1456,7 @@ private struct ActivityPlaceholder: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct ReceiveWalletView: View {
     @Environment(\.dismiss) private var dismiss
     let wallet: StoredWallet
@@ -1524,6 +1543,7 @@ private struct ReceiveWalletView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct QRCodeView: View {
     let value: String
     @State private var image: PlatformImage?
@@ -1575,6 +1595,7 @@ private struct QRCodeView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private struct SendWalletView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -1860,6 +1881,7 @@ private struct SendWalletView: View {
     }
 }
 
+@available(iOS 18.0, *)
 private enum SendPresentationError: LocalizedError {
     case walletNotMigrated
     case invalidAmount
@@ -1875,4 +1897,5 @@ private enum SendPresentationError: LocalizedError {
 }
 
 
+@available(iOS 18.0, *)
 private enum WalletLinkError: Error { case expiredChallenge }

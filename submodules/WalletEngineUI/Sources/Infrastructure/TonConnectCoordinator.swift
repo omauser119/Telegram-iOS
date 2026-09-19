@@ -6,10 +6,12 @@ import WalletEngineFFI
 import UIKit
 #endif
 
+@available(iOS 18.0, *)
 struct TonConnectConnection: Equatable, Sendable {
     let manifest: TonConnectManifest
 }
 
+@available(iOS 18.0, *)
 enum TonConnectApproval: Identifiable, Equatable, Sendable {
     case connect(manifest: TonConnectManifest, prompt: TonConnectConnectPrompt)
     case transaction(
@@ -29,11 +31,13 @@ enum TonConnectApproval: Identifiable, Equatable, Sendable {
 }
 
 /// Preview data whose fee semantics match the requested TON Connect method.
+@available(iOS 18.0, *)
 enum TonConnectTransactionPreview: Equatable, Sendable {
     case send(SendPreview)
     case sign(SignMessagePreview)
 }
 
+@available(iOS 18.0, *)
 extension TonConnectIncomingRequest {
     /// Returns the exact dApp request ID carried by any protocol variant.
     var requestId: String {
@@ -50,6 +54,7 @@ extension TonConnectIncomingRequest {
 /// Apple product integration around the Rust TON Connect session state machine.
 @MainActor
 @Observable
+@available(iOS 18.0, *)
 final class TonConnectCoordinator {
     private(set) var connection: TonConnectConnection?
     private(set) var approval: TonConnectApproval?
@@ -584,6 +589,7 @@ final class TonConnectCoordinator {
     }
 }
 
+@available(iOS 18.0, *)
 nonisolated enum TonConnectCoordinatorError: LocalizedError, Sendable {
     case invalidWallet
     case sessionAlreadyActive

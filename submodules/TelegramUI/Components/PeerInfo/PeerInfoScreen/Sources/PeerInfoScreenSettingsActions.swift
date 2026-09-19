@@ -52,7 +52,9 @@ extension PeerInfoScreenNode {
         case .proxy:
             self.controller?.push(proxySettingsController(context: self.context))
         case .wallet:
-            self.controller?.push(WalletScreen(context: self.context))
+            if #available(iOS 18.0, *) {
+                self.controller?.push(WalletScreen(context: self.context))
+            }
         case .profile:
             self.controller?.push(PeerInfoScreenImpl(
                 context: self.context,

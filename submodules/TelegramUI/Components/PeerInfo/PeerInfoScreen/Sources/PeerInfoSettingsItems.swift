@@ -151,9 +151,11 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
             interaction.openSettings(.profile)
         }))
         
-        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, text: "Wallet", icon: UIImage(systemName: "creditcard.fill"), action: {
-            interaction.openSettings(.wallet)
-        }))
+        if #available(iOS 18.0, *) {
+            items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, text: "Wallet", icon: UIImage(systemName: "creditcard.fill"), action: {
+                interaction.openSettings(.wallet)
+            }))
+        }
 
         if !settings.proxySettings.servers.isEmpty {
             let proxyType: String

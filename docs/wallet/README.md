@@ -84,3 +84,10 @@ The iOS relay follows FILE_MIGRATE through Telegram's authorized worker pool.
 These replies do not validate success-response parsing or ownership-proof
 acceptance. Server access is currently an external blocker for end-to-end tests
 on this account; no wallet mutation or fund transfer was performed.
+
+## OS compatibility
+
+The app and the statically linked Rust library target iOS 13.0. The copied
+Wallet Engine UI uses modern SwiftUI/Observation APIs and is explicitly marked
+`@available(iOS 18.0, *)`. Wallet in Settings and Money in the attachment menu
+are offered on iOS 18 and later. Flash account networking is available on iOS 13.

@@ -1,6 +1,7 @@
 import Foundation
 import WalletEngineFFI
 
+@available(iOS 18.0, *)
 public nonisolated struct WalletLinkChallenge: Sendable {
     public let payload: String
     public let expires: Int32
@@ -10,6 +11,7 @@ public nonisolated struct WalletLinkChallenge: Sendable {
     }
 }
 
+@available(iOS 18.0, *)
 public nonisolated protocol WalletProviderTransport: Sendable {
     func recipientAddress() async throws -> String
     func proofChallenge() async throws -> WalletLinkChallenge
@@ -19,6 +21,7 @@ public nonisolated protocol WalletProviderTransport: Sendable {
 
 /// Wallet Engine still builds and parses Toncenter requests. Only transport is
 /// replaced: every provider request goes through the logged-in Telegram account.
+@available(iOS 18.0, *)
 nonisolated final class TelegramWalletHTTPHost: WalletHttpHost, @unchecked Sendable {
     private let transport: any WalletProviderTransport
     private let lock = NSLock()

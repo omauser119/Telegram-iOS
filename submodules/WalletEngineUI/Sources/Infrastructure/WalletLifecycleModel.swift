@@ -8,6 +8,7 @@ import WalletEngineFFI
 /// presentation is active and provides an explicit discard operation.
 @MainActor
 @Observable
+@available(iOS 18.0, *)
 final class WalletLifecycleModel {
     private(set) var recoveryPhrase: RecoveryPhrase?
     private(set) var diagnostic: String?
@@ -154,6 +155,7 @@ final class WalletLifecycleModel {
     }
 }
 
+@available(iOS 18.0, *)
 enum WalletLifecycleModelError: Error, Sendable {
     case operationInProgress
     case superseded

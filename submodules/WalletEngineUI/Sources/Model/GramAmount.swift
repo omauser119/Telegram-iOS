@@ -5,6 +5,7 @@ import Foundation
 /// GRAM has nine fractional decimal places. This parser intentionally never
 /// passes through `Double` or `Decimal`, so the unsigned nanogram amount is the
 /// exact value the user entered.
+@available(iOS 18.0, *)
 nonisolated enum GramAmount {
     static func nanograms(from input: String) -> String? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)

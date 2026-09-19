@@ -2,6 +2,7 @@ import Foundation
 import WalletEngineFFI
 
 /// Adapts  engine records to the DTOs consumed by the existing views.
+@available(iOS 18.0, *)
 nonisolated extension WalletAccountSnapshot {
     init(engine value: WalletEngineFFI.AccountSnapshot) {
         balanceNanograms = value.balanceNanograms
@@ -16,6 +17,7 @@ nonisolated extension WalletAccountSnapshot {
     }
 }
 
+@available(iOS 18.0, *)
 nonisolated extension WalletTransaction {
     init(engine value: WalletEngineFFI.ActivityItem) {
         id = value.id
@@ -31,6 +33,7 @@ nonisolated extension WalletTransaction {
     }
 }
 
+@available(iOS 18.0, *)
 nonisolated extension WalletEngineFFI.WalletSnapshot {
     var viewAccount: WalletAccountSnapshot? {
         account.map(WalletAccountSnapshot.init(engine:))

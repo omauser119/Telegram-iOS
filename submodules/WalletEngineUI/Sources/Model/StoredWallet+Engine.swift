@@ -1,6 +1,7 @@
 import Foundation
 import WalletEngineFFI
 
+@available(iOS 18.0, *)
 nonisolated extension StoredWalletNetwork {
     init(engine value: Network) {
         self = switch value {
@@ -17,6 +18,7 @@ nonisolated extension StoredWalletNetwork {
     }
 }
 
+@available(iOS 18.0, *)
 nonisolated extension StoredWallet {
     /// Creates persisted metadata only after Rust returned a real protected
     /// secret reference for the wallet.
