@@ -1,0 +1,5 @@
+Views, Model and Infrastructure copied from i582/wallet-engine
+Commit: 12f0b49a1c0fbd6cd575bcadd9c54e5706b0f42e
+MIT license, see LICENSE. Telegram integration changes are maintained in this directory.
+Video reference: tglwal.mp4 frames 013 (send amount/keypad), 025 (card/actions),
+032 (benefits), 035 (funding sheet). No reference balance or recipient is hardcoded.

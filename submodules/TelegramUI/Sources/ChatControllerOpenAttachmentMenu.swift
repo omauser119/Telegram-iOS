@@ -867,10 +867,11 @@ extension ChatControllerImpl {
                         }
                     case .money:
                         if let peer = strongSelf.presentationInterfaceState.renderedPeer?.peer {
-                            strongSelf.attachmentController?.dismiss(animated: true)
-                            strongSelf.push(WalletScreen(context: context, recipientId: peer.id))
+                            let controller = WalletScreen(context: context, recipientId: peer.id)
+                            completion(controller, controller.mediaPickerContext)
+                            strongSelf.controllerNavigationDisposable.set(nil)
                         }
-                        return false
+                        return true
                     case .gift:
                         if let peer = strongSelf.presentationInterfaceState.renderedPeer?.peer, let starsContext = context.starsContext {
                             let premiumGiftOptions = strongSelf.presentationInterfaceState.premiumGiftOptions

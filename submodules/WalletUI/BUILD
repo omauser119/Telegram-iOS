@@ -4,6 +4,8 @@ swift_library(
     module_name = "WalletUI",
     srcs = glob(["Sources/**/*.swift"]),
     deps = [
+        "//submodules/WalletEngineUI",
+        "//submodules/AttachmentUI",
         "//submodules/AccountContext",
         "//submodules/AsyncDisplayKit",
         "//submodules/Display",

@@ -1,81 +1,72 @@
-# Wallet integration — preview branch
+# Wallet integration status
 
-This branch is **not a working money-transfer implementation**. It adds an
-inspectable UI entry point and build workflow so integration can proceed in the
-actual client without presenting fake balances or successful transfers.
+This branch integrates the original i582/wallet-engine Swift example, pinned at
+12f0b49a1c0fbd6cd575bcadd9c54e5706b0f42e. Views, models and Apple hosts were copied
+into `submodules/WalletEngineUI`, preserving their lifecycle, send journal,
+recovery confirmation and cancellation handling. See its MIT license and NOTICE.
+Minimum iOS is now 18, as authorized for this fork.
 
-## Implemented
+## Implemented in source; device verification pending
 
-- Wallet immediately below My Profile in Settings.
-- Money in the attachment menu of non-bot private chats, opening a recipient
-  screen. It currently opens a pushed controller rather than an embedded sheet.
-- Balance card adapted from the wallet-engine Swift example, with attribution.
-- Read-only `wallet.getProofChallenge` connectivity diagnostic through the
-  logged-in account's MTProto network. No proof is signed or persisted.
-- macOS 26 GitHub Actions build, ephemeral signing, IPA and dSYM artifacts.
-  Adapted from https://github.com/zavolo/opengram-ios/blob/master/.github/workflows/build.yml.
-  Uses `build-system/appstore-configuration.json`, matching the reference;
-  no additional repository API secrets are required.
-  Artifacts require appropriate re-signing for installation. No releases publish
-  automatically. The workflow retains the upstream app identifier/profile
-  configuration; a distinct installable app identity is still to be configured.
+- Wallet below My Profile and Money hosted in Telegram's attachment container.
+- Original dashboard, recovery, create/import, history, QR and send views.
+- Card colors, owner name, QR action and Add Funds/Send order adapted to the
+  reference video. Key frames are in `reference/`. Amount presentation and
+  recipient prefilling are adapted in the original SendWalletView.
+- Rust-backed local wallet creation/import and authenticated Keychain storage.
+  Public wallet archives and secret services are scoped to the Telegram account.
+- Registration path: getProofChallenge, local TON ownership proof signing,
+  replaceWallet(imported), response constructor/public-key verification. This
+  assumes Telegram's proof uses standard ton_proof; server acceptance is still
+  unverified. A link failure leaves the backed-up local wallet intact and shows
+  an error; it is never represented as a successful Telegram registration.
+- Recipient address lookup through wallet.getUserAddresses using InputUser and
+  checking the returned user ID.
+- Wallet Engine Toncenter traffic routed through toncenter.performApiRequest,
+  with request/response size limits and cancellation. Endpoint routing and
+  server access still require live validation.
+- All 25 discovered MTProto requests have generated Swift serializers in
+  `TelegramApi/Sources/WalletMTProto.swift`. Signatures match their TL CRC32 and
+  the corrected binary serializer IDs. Low-level request responses are raw
+  buffers; only responses needed by the integration have decoders so far.
+- CI builds pinned Rust bindings and the arm64 library before Bazel, then uploads
+  the IPA and dSYM. Build follows the opengram workflow with self-signed signing.
 
-## Protocol correction
+## Still incomplete
 
-The earlier locally extracted TL file must not be treated as authoritative.
-Swift large-string references point **32 bytes before** their string bytes.
-Matching a LEA directly to a string shifted method names and constructor IDs.
-For example:
+- Full typed response/update handling for backup, transactions and TON Connect.
+- UI wiring for wallet backup and the MTProto TON Connect lifecycle: copied
+  TON Connect screens/coordinator still use the original bridge transport.
+- Submitting signed messages specifically through wallet.sendTransfer. The
+  copied send journal currently submits Toncenter JSON-RPC through the MTProto
+  proxy. The presence of a sendTransfer serializer is not full integration.
+- Exact embedded amount-sheet transitions, payment message bubble, confetti,
+  fiat prices and funding-provider purchase flows from the reference video.
+- Retry UI for account linking, 2FA/SRP handling and unlink behavior.
+- Successful iOS compilation and simulator/device verification of this revision.
 
-| Method | Corrected serializer ID |
-| --- | --- |
-| wallet.getUserAddresses | 0x5275dfdd |
-| wallet.replaceWallet | 0xd8c72eec |
-| wallet.sendTransfer | 0xd37d8fdb |
-| wallet.getProofChallenge | 0x2025e697 |
-| wallet.tonConnectCreateSession | 0xcc931046 |
-| toncenter.performApiRequest | 0x8d7bdd61 |
+No account/session/API secrets are committed. No funds were sent during coding.
 
-The previous live requests labelled getUserAddresses actually targeted
-replaceWallet. Their WALLET_UNAVAILABLE responses do **not** establish the
-getUserAddresses signature, recipient availability, or service access.
-Generic decoder errors do not confirm the intended method's identity either.
+## Protocol evidence
 
-`method-evidence.json` records file offsets and immediate candidates from the
-12.10.283233 macOS binary. Reproduce with:
+Earlier extraction used the wrong Swift string address and shifted method IDs.
+The previous local wallet.tl must not be used. String references point 32 bytes
+before the actual string contents. `method-evidence.json` records corrected
+function offsets and constructor immediates. `methods.tl` contains corrected
+request fields. In particular getUserAddresses uses Vector<InputUser> and an
+unconditional addresses vector; sendTransfer has mandatory data_normal.
+
+Regenerate and verify the request signatures:
 
 ```sh
-python3 tools/wallet/extract_method_ids.py /path/to/Telegram-12.10.283233.app.zip
+python3 tools/wallet/generate-requests.py
 ```
 
-This is evidence for manual disassembly, not a complete schema generator.
-Nested constructor constants can appear among candidates. Return types, flag
-semantics, and full field order must be verified before adding typed requests.
+Build the native engine on macOS before invoking the normal Telegram build:
 
-## Remaining implementation
+```sh
+tools/wallet/build-engine.sh
+```
 
-1. Recover and verify the full request and response schema; regenerate typed
-   TelegramApi objects. Compare read-only replies to the new parser.
-2. Integrate the wallet-engine Rust library and generated UniFFI wrapper into
-   Bazel and CI. Its packaged Apple binaries require iOS 18; this client targets
-   iOS 13, so availability and linkage need explicit handling.
-3. Account-scoped Keychain storage, create/import/backup, ownership proof and
-   wallet registration; wire snapshot balance/history to the dashboard.
-4. Typed peer address resolution, exact integer amounts, transaction preview,
-   local authentication, signing and send journal. Route signed payloads through
-   the verified MTProto transfer API. Only show completion after server success.
-5. Native embedded attachment sheet and transaction chat bubble matching video.
-6. macOS build and simulator/device verification, including unavailable-wallet,
-   retry, cancellation and duplicate-send behavior.
-
-No secret phrase, API credential, session file or access hash is included here.
-No transfers or wallet mutations are performed by this preview.
-
-## Sources and local verification
-
-- Telegram-iOS base: 6ad963e5b62d354da79040f388ae2b9132fb17b8.
-- wallet-engine reference: 12f0b49a1c0fbd6cd575bcadd9c54e5706b0f42e.
-- Video: tglwal.mp4, 20.031 seconds, sampled at 2 fps (40 local frames).
-- Checked workflow with actionlint, embedded shell/Python syntax and git diff whitespace.
-- No Xcode/Swift SDK is installed on the Linux development host. An iOS build
-  and runtime verification have **not** completed.
+Swift bindings were generated successfully on Linux. SwiftUI, Security framework
+and final Apple linkage require the macOS CI runner.

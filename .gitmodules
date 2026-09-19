@@ -38,3 +38,6 @@ url=https://github.com/bazelbuild/rules_swift.git
 [submodule "build-system/bazel-rules/sourcekit-bazel-bsp"]
 	path = build-system/bazel-rules/sourcekit-bazel-bsp
 	url = https://github.com/spotify/sourcekit-bazel-bsp.git
+[submodule "third-party/wallet-engine"]
+	path = third-party/wallet-engine
+	url = https://github.com/i582/wallet-engine.git
