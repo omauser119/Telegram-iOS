@@ -31,6 +31,20 @@ nonisolated final class TelegramWalletHTTPHost: WalletHttpHost, @unchecked Senda
     init(transport: any WalletProviderTransport) { self.transport = transport }
 
     func executeHttp(request: HttpRequest) async throws -> HttpResponse {
+        // UniFFI only accepts the callback's declared error type. Letting an RPC
+        // error or CancellationError escape triggers a Rust panic (release abort).
+        do {
+            return try await executeProviderRequest(request: request)
+        } catch let error as HttpHostError {
+            throw error
+        } catch is CancellationError {
+            throw HttpHostError.Failed(kind: .cancelled, diagnostic: "Wallet provider request was cancelled")
+        } catch {
+            throw HttpHostError.Failed(kind: .other, diagnostic: String(error.localizedDescription.prefix(512)))
+        }
+    }
+
+    private func executeProviderRequest(request: HttpRequest) async throws -> HttpResponse {
         guard let url = URLComponents(string: request.url),
               url.scheme == "https", url.host == "toncenter.com",
               url.user == nil, url.password == nil, url.fragment == nil,
