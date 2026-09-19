@@ -54,7 +54,16 @@ public final class WalletScreen: ViewController, AttachmentContainable {
                 accountId: String(self.context.account.peerId.toInt64()),
                 ownerName: [peers.0?.firstName, peers.0?.lastName].compactMap { $0 }.joined(separator: " "),
                 recipientName: peers.1.map { [$0.firstName, $0.lastName].compactMap { $0 }.joined(separator: " ") },
-                onClose: { [weak self] in self?.dismiss() },
+                onClose: { [weak self] in
+                    guard let self else { return }
+                    if recipientId != nil, let parent = self.parentController() { parent.dismiss() }
+                    else { self.dismiss() }
+                },
+                onInputFocusChanged: { [weak self] focused in
+                    guard let self, recipientId != nil else { return }
+                    if focused { self.requestAttachmentMenuExpansion() }
+                    self.updateTabBarVisibility(!focused, .animated(duration: 0.25, curve: .easeInOut))
+                },
                 transport: TelegramWalletTransport(context: self.context, recipient: peers.1)
             )
             let host = UIHostingController(rootView: AnyView(wallet))

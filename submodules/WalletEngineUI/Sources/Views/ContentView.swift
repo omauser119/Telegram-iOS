@@ -6,9 +6,11 @@ import WalletEngineFFI
 public struct WalletEngineView: View {
     private let environment: AppleWalletEnvironment
     private let onClose: @MainActor () -> Void
+    private let onInputFocusChanged: @MainActor (Bool) -> Void
 
-    public init(accountId: String, ownerName: String, recipientName: String? = nil, onClose: @escaping @MainActor () -> Void, transport: any WalletProviderTransport) {
+    public init(accountId: String, ownerName: String, recipientName: String? = nil, onClose: @escaping @MainActor () -> Void, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }, transport: any WalletProviderTransport) {
         self.onClose = onClose
+        self.onInputFocusChanged = onInputFocusChanged
         self.environment = AppleWalletEnvironment(accountId: accountId, ownerName: ownerName, recipientName: recipientName, transport: transport)
     }
     @AppStorage("isBalanceVisible") private var isBalanceVisible = true
@@ -27,16 +29,21 @@ public struct WalletEngineView: View {
         .toolbarBackground(.hidden, for: .windowToolbar)
         .preferredColorScheme(preferredColorScheme)
 #else
-        NavigationStack {
-            WalletDashboard(isBalanceVisible: $isBalanceVisible, environment: environment)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button(action: onClose) { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
-            .navigationDestination(for: WalletSection.self) { section in
-                if section == .settings {
-                    SettingsView()
+        if environment.recipientName != nil {
+            WalletDashboard(isBalanceVisible: $isBalanceVisible, environment: environment, onClose: onClose, onInputFocusChanged: onInputFocusChanged)
+                .preferredColorScheme(preferredColorScheme)
+        } else {
+            NavigationStack {
+                WalletDashboard(isBalanceVisible: $isBalanceVisible, environment: environment)
+                .toolbar { ToolbarItem(placement: .topBarLeading) { Button(action: onClose) { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
+                .navigationDestination(for: WalletSection.self) { section in
+                    if section == .settings {
+                        SettingsView()
+                    }
                 }
             }
+            .preferredColorScheme(preferredColorScheme)
         }
-        .preferredColorScheme(preferredColorScheme)
 #endif
     }
 }
@@ -138,15 +145,18 @@ private struct WalletDashboard: View {
     @State private var session: WalletSession?
     @State private var tonConnect: TonConnectCoordinator?
     @State private var sessionError: String?
-    @State private var recipientAddress = ""
-    @State private var didOpenRecipient = false
     @State private var isConfirmingWalletDeletion = false
     @State private var presentedSheet: WalletSheet?
     @State private var didRestoreWallets = false
     @State private var persistenceError: String?
     @State private var activationGeneration: UInt64 = 0
 
-    init(isBalanceVisible: Binding<Bool>, environment: AppleWalletEnvironment) {
+    private let onClose: @MainActor () -> Void
+    private let onInputFocusChanged: @MainActor (Bool) -> Void
+
+    init(isBalanceVisible: Binding<Bool>, environment: AppleWalletEnvironment, onClose: @escaping @MainActor () -> Void = {}, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        self.onClose = onClose
+        self.onInputFocusChanged = onInputFocusChanged
         _isBalanceVisible = isBalanceVisible
         _environment = State(initialValue: environment)
         _lifecycle = State(initialValue: WalletLifecycleModel(environment: environment))
@@ -233,7 +243,39 @@ private struct WalletDashboard: View {
 #endif
     }
 
-    var body: some View {
+    @ViewBuilder
+    private var attachmentContent: some View {
+        if let activeWallet, let session {
+            SendWalletView(wallet: activeWallet, account: account,
+                canForceRetry: walletSnapshot?.send.resolution?.canForceRetry == true,
+                session: session,
+                recipientName: environment.recipientName, onClose: onClose,
+                onInputFocusChanged: onInputFocusChanged,
+                transport: environment.transport) { onClose() }
+        } else {
+            NavigationStack {
+                VStack(spacing: 20) {
+                    if let sessionError {
+                        Text(sessionError).foregroundStyle(.red)
+                        Button("Retry") { Task { await activateWalletData() } }
+                    } else if didRestoreWallets && activeWallet == nil {
+                        EmptyWalletState { presentedSheet = .create }
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .navigationTitle("Send Money")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(action: onClose) { Image(systemName: "xmark") }
+                    }
+                }
+            }
+        }
+    }
+
+    private var dashboardContent: some View {
         ScrollView {
             if let activeWallet {
                 VStack(alignment: .leading, spacing: 28) {
@@ -421,6 +463,18 @@ private struct WalletDashboard: View {
                 }
             }
         }
+    }
+
+    var body: some View {
+        Group {
+            if environment.recipientName != nil {
+                attachmentContent
+            } else {
+                dashboardContent
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.platformWindowBackground)
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
             case .create:
@@ -445,7 +499,6 @@ private struct WalletDashboard: View {
                         account: account,
                         canForceRetry: walletSnapshot?.send.resolution?.canForceRetry == true,
                         session: session,
-                        initialDestination: recipientAddress,
                         recipientName: environment.recipientName
                     ) {
                         refreshAccount()
@@ -669,11 +722,6 @@ private struct WalletDashboard: View {
             tonConnect = coordinator
             await coordinator.restore()
             sessionError = nil
-            if environment.recipientName != nil && !didOpenRecipient {
-                recipientAddress = try await environment.transport.recipientAddress()
-                didOpenRecipient = true
-                presentedSheet = .send
-            }
         } catch is CancellationError {
             return
         } catch {
@@ -1605,17 +1653,25 @@ private struct SendWalletView: View {
     let session: WalletSession
     let onSubmitted: () -> Void
     let recipientName: String?
-    init(wallet: StoredWallet, account: WalletAccountSnapshot?, canForceRetry: Bool, session: WalletSession, initialDestination: String = "", recipientName: String? = nil, onSubmitted: @escaping () -> Void) {
+    let onClose: (@MainActor () -> Void)?
+    let onInputFocusChanged: @MainActor (Bool) -> Void
+    let transport: (any WalletProviderTransport)?
+    init(wallet: StoredWallet, account: WalletAccountSnapshot?, canForceRetry: Bool, session: WalletSession, initialDestination: String = "", recipientName: String? = nil, onClose: (@MainActor () -> Void)? = nil, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }, transport: (any WalletProviderTransport)? = nil, onSubmitted: @escaping () -> Void) {
         self.wallet = wallet
         self.account = account
         self.canForceRetry = canForceRetry
         self.session = session
         self.recipientName = recipientName
+        self.onClose = onClose
+        self.onInputFocusChanged = onInputFocusChanged
+        self.transport = transport
         self.onSubmitted = onSubmitted
         self._destination = State(initialValue: initialDestination)
     }
 
     @State private var destination = ""
+    @State private var comment = ""
+    @State private var showsComment = false
     @State private var amount = ""
     @State private var isSubmitting = false
     @State private var isConfirming = false
@@ -1627,6 +1683,7 @@ private struct SendWalletView: View {
     private enum Field: Hashable {
         case destination
         case amount
+        case comment
     }
 
     private var normalizedDestination: String {
@@ -1652,22 +1709,33 @@ private struct SendWalletView: View {
                         .onSubmit { focusedField = .amount }
                 }
 
-                Section {
+                VStack(spacing: 14) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Image(systemName: "diamond.fill").foregroundStyle(.cyan)
                         TextField("0", text: $amount)
                             .font(.system(size: 44, weight: .semibold))
                             .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 180)
+                            .frame(width: max(38, min(210, CGFloat(amount.count + 1) * 27)))
                             .monospacedDigit()
                             .platformDecimalInput()
                             .focused($focusedField, equals: .amount)
                         Text("GRAM").font(.title2.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
-                } footer: {
-                    Text("Available: \(account?.balanceGrams ?? "—") GRAM. Network fees are charged separately.")
+                    if showsComment {
+                        TextField("Add a comment", text: $comment)
+                            .multilineTextAlignment(.center)
+                            .focused($focusedField, equals: .comment)
+                            .submitLabel(.done)
+                            .onSubmit { focusedField = .amount }
+                            .padding(10)
+                            .background(.quaternary, in: Capsule())
+                    }
                 }
+                Spacer(minLength: 16)
+                Text("Balance: \(account?.balanceGrams ?? "—") Grams")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
                 if forceRetryAvailable {
                     Section {
@@ -1689,6 +1757,7 @@ private struct SendWalletView: View {
             }
             .padding(20)
             .safeAreaInset(edge: .bottom) {
+                if recipientName == nil || focusedField != nil || !amount.isEmpty {
                 sendButton
                     .frame(maxWidth: .infinity)
                     .buttonStyle(.borderedProminent)
@@ -1696,16 +1765,38 @@ private struct SendWalletView: View {
                     .controlSize(.large)
                     .tint(.cyan)
                     .padding()
+                }
             }
-            .navigationTitle(recipientName.map { "Send Money to " + $0 } ?? "Send GRAM")
+            .navigationTitle(recipientName == nil ? "Send GRAM" : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(isSubmitting)
+                    Button { if let onClose { onClose() } else { dismiss() } } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .disabled(isSubmitting)
+                }
+                ToolbarItem(placement: .principal) {
+                    if let recipientName {
+                        (Text("Send Money to ") + Text(recipientName).foregroundColor(.cyan))
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        if transport != nil && destination.isEmpty {
+                            Button("Retry recipient lookup", systemImage: "arrow.clockwise") {
+                                Task { await resolveRecipient() }
+                            }
+                        }
+                        Button("Add a comment", systemImage: "text.bubble") {
+                            showsComment = true
+                            focusedField = .comment
+                        }
+                    } label: { Image(systemName: "ellipsis.circle") }
                 }
             }
-            .defaultFocus($focusedField, recipientName == nil ? .destination : .amount)
+            .defaultFocus($focusedField, recipientName == nil ? .destination : nil)
         }
         .platformResizableModalPresentation()
         .interactiveDismissDisabled(isSubmitting)
@@ -1790,6 +1881,9 @@ private struct SendWalletView: View {
         .interactiveDismissDisabled(isSubmitting)
 #endif
         }
+        .task { await resolveRecipient() }
+        .onChange(of: focusedField) { _, field in onInputFocusChanged(field != nil) }
+        .onDisappear { onInputFocusChanged(false) }
         .onAppear {
             forceRetryAvailable = canForceRetry
         }
@@ -1811,6 +1905,18 @@ private struct SendWalletView: View {
         }
     }
 
+    private func resolveRecipient() async {
+        guard let transport else { return }
+        do {
+            destination = try await transport.recipientAddress()
+            errorMessage = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     @ViewBuilder
     private var sendButton: some View {
         Button {
@@ -1821,7 +1927,7 @@ private struct SendWalletView: View {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Text("Send")
+                Text(normalizedAmount.isEmpty ? "Send Grams" : "Send \(normalizedAmount) Grams")
             }
         }
         .disabled(
@@ -1847,7 +1953,7 @@ private struct SendWalletView: View {
                             messages: [SendMessage(
                                 destination: normalizedDestination,
                                 amount: .exact(nanograms: nanograms),
-                                body: .empty,
+                                body: comment.isEmpty ? .empty : .comment(text: comment),
                                 bounce: false,
                                 stateInit: nil
                             )]
@@ -1857,7 +1963,7 @@ private struct SendWalletView: View {
                 switch result.phase {
                 case .submitted, .confirmed:
                     onSubmitted()
-                    dismiss()
+                    if onClose == nil { dismiss() }
                 case .submissionUnknown:
                     forceRetryAvailable = session.snapshot.send.resolution?.canForceRetry == true
                     force = false
