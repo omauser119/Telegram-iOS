@@ -42,19 +42,38 @@ nonisolated final class TelegramWalletHTTPHost: WalletHttpHost, @unchecked Senda
             payload = body
         }
         let transport = self.transport
-        let task = Task<HttpResponse, Error> {
-            let json = try await transport.perform(endpoint: url.path, query: url.percentEncodedQuery, payload: payload)
-            try Task.checkCancellation()
-            guard json.utf8.count <= 4 * 1024 * 1024 else {
-                throw HttpHostError.Failed(kind: .responseTooLarge, diagnostic: "Wallet response exceeds limit")
+        guard request.timeoutMs > 0 && request.timeoutMs <= 300_000 else {
+            throw HttpHostError.Failed(kind: .policyViolation, diagnostic: "Invalid provider timeout")
+        }
+        let task = try lock.withLock { () throws -> Task<HttpResponse, Error> in
+            guard tasks[request.id.value] == nil else {
+                throw HttpHostError.Failed(kind: .policyViolation, diagnostic: "Duplicate provider request")
             }
-            return HttpResponse(status: 200, headers: [], body: Data(json.utf8), finalUrl: request.url)
-        }
-        let cancelled = lock.withLock {
+            guard earlyCancellation.remove(request.id.value) == nil else {
+                throw CancellationError()
+            }
+            let task = Task<HttpResponse, Error> {
+                let json = try await withThrowingTaskGroup(of: String.self) { group in
+                    group.addTask {
+                        try await transport.perform(endpoint: url.path, query: url.percentEncodedQuery, payload: payload)
+                    }
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: request.timeoutMs * 1_000_000)
+                        throw HttpHostError.Failed(kind: .timeout, diagnostic: "Wallet provider timed out")
+                    }
+                    defer { group.cancelAll() }
+                    guard let result = try await group.next() else { throw CancellationError() }
+                    return result
+                }
+                try Task.checkCancellation()
+                guard json.utf8.count <= 4 * 1024 * 1024 else {
+                    throw HttpHostError.Failed(kind: .responseTooLarge, diagnostic: "Wallet response exceeds limit")
+                }
+                return HttpResponse(status: 200, headers: [], body: Data(json.utf8), finalUrl: request.url)
+            }
             tasks[request.id.value] = task
-            return earlyCancellation.remove(request.id.value) != nil
+            return task
         }
-        if cancelled { task.cancel() }
         defer { _ = lock.withLock { tasks.removeValue(forKey: request.id.value) } }
         return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
     }

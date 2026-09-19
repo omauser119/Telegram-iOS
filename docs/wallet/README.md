@@ -70,3 +70,17 @@ tools/wallet/build-engine.sh
 
 Swift bindings were generated successfully on Linux. SwiftUI, Security framework
 and final Apple linkage require the macOS CI runner.
+
+## Live read-only checks (2026-09-19)
+
+Using the existing authorized Telethon session and corrected request layouts:
+
+- wallet.getProofChallenge: RPC 400 WALLET_UNAVAILABLE.
+- wallet.getUserAddresses (InputUserSelf, empty addresses): RPC 400 WALLET_UNAVAILABLE.
+- toncenter.performApiRequest: FILE_MIGRATE_4 on the account DC; after exporting
+  authorization to DC 4: RPC 403 ACCESS_DENIED.
+
+The iOS relay follows FILE_MIGRATE through Telegram's authorized worker pool.
+These replies do not validate success-response parsing or ownership-proof
+acceptance. Server access is currently an external blocker for end-to-end tests
+on this account; no wallet mutation or fund transfer was performed.

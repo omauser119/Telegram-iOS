@@ -122,7 +122,7 @@ final class TelegramWalletTransport: WalletProviderTransport, @unchecked Sendabl
                     operation.finish(.failure(CancellationError()))
                     return
                 }
-                operation.setDisposable(context.account.network.request(request, automaticFloodWait: false).start(next: { buffer in
+                operation.setDisposable(context.account.network.walletRelayRequest(request).start(next: { buffer in
                     operation.finish(.success(buffer.makeData()))
                 }, error: { error in
                     operation.finish(.failure(WalletTransportError.rpc(Int(error.errorCode), error.errorDescription ?? "RPC error")))
