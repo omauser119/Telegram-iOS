@@ -10,6 +10,7 @@ nonisolated struct AppleWalletEnvironment: Sendable {
     let ownerName: String
     let recipientName: String?
     let transport: any WalletProviderTransport
+    let tonUsdRate: @MainActor () -> Double?
     private let httpPolicy: AppleWalletHTTPPolicy
     private let runtime: AppleRuntimeConfiguration
 
@@ -19,6 +20,7 @@ nonisolated struct AppleWalletEnvironment: Sendable {
         ownerName: String,
         recipientName: String?,
         transport: any WalletProviderTransport,
+        tonUsdRate: @escaping @MainActor () -> Double? = { nil },
         bundle: Bundle = .main,
         runtime: AppleRuntimeConfiguration = .current
     ) {
@@ -41,6 +43,7 @@ nonisolated struct AppleWalletEnvironment: Sendable {
         self.ownerName = ownerName
         self.recipientName = recipientName
         self.transport = transport
+        self.tonUsdRate = tonUsdRate
         let namespace = "telegram-" + accountId
         self.store = WalletStore(namespace: namespace)
         platformHost = AppleWalletPlatformHost(secrets: AppleWalletProtectedSecretStore(service: "telegram.wallet." + accountId))

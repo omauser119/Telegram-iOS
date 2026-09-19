@@ -7,11 +7,13 @@ public struct WalletEngineView: View {
     private let environment: AppleWalletEnvironment
     private let onClose: @MainActor () -> Void
     private let onInputFocusChanged: @MainActor (Bool) -> Void
+    private let onTransfer: @MainActor (WalletTransferReceipt) -> Void
 
-    public init(accountId: String, ownerName: String, recipientName: String? = nil, onClose: @escaping @MainActor () -> Void, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }, transport: any WalletProviderTransport) {
+    public init(accountId: String, ownerName: String, recipientName: String? = nil, onClose: @escaping @MainActor () -> Void, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }, tonUsdRate: @escaping @MainActor () -> Double? = { nil }, onTransfer: @escaping @MainActor (WalletTransferReceipt) -> Void = { _ in }, transport: any WalletProviderTransport) {
         self.onClose = onClose
         self.onInputFocusChanged = onInputFocusChanged
-        self.environment = AppleWalletEnvironment(accountId: accountId, ownerName: ownerName, recipientName: recipientName, transport: transport)
+        self.onTransfer = onTransfer
+        self.environment = AppleWalletEnvironment(accountId: accountId, ownerName: ownerName, recipientName: recipientName, transport: transport, tonUsdRate: tonUsdRate)
     }
     @AppStorage("isBalanceVisible") private var isBalanceVisible = true
     @AppStorage("appAppearance") private var appAppearance = AppAppearance.system.rawValue
@@ -30,7 +32,7 @@ public struct WalletEngineView: View {
         .preferredColorScheme(preferredColorScheme)
 #else
         if environment.recipientName != nil {
-            WalletDashboard(isBalanceVisible: $isBalanceVisible, environment: environment, onClose: onClose, onInputFocusChanged: onInputFocusChanged)
+            WalletDashboard(isBalanceVisible: $isBalanceVisible, environment: environment, onClose: onClose, onInputFocusChanged: onInputFocusChanged, onTransfer: onTransfer)
                 .preferredColorScheme(preferredColorScheme)
         } else {
             NavigationStack {
@@ -153,10 +155,12 @@ private struct WalletDashboard: View {
 
     private let onClose: @MainActor () -> Void
     private let onInputFocusChanged: @MainActor (Bool) -> Void
+    private let onTransfer: @MainActor (WalletTransferReceipt) -> Void
 
-    init(isBalanceVisible: Binding<Bool>, environment: AppleWalletEnvironment, onClose: @escaping @MainActor () -> Void = {}, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }) {
+    init(isBalanceVisible: Binding<Bool>, environment: AppleWalletEnvironment, onClose: @escaping @MainActor () -> Void = {}, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }, onTransfer: @escaping @MainActor (WalletTransferReceipt) -> Void = { _ in }) {
         self.onClose = onClose
         self.onInputFocusChanged = onInputFocusChanged
+        self.onTransfer = onTransfer
         _isBalanceVisible = isBalanceVisible
         _environment = State(initialValue: environment)
         _lifecycle = State(initialValue: WalletLifecycleModel(environment: environment))
@@ -251,7 +255,10 @@ private struct WalletDashboard: View {
                 session: session,
                 recipientName: environment.recipientName, onClose: onClose,
                 onInputFocusChanged: onInputFocusChanged,
-                transport: environment.transport) { onClose() }
+                transport: environment.transport, tonUsdRate: environment.tonUsdRate) { receipt in
+                    onTransfer(receipt)
+                    onClose()
+                }
         } else {
             NavigationStack {
                 VStack(spacing: 20) {
@@ -284,6 +291,7 @@ private struct WalletDashboard: View {
                             isBalanceVisible: $isBalanceVisible,
                             account: account,
                             ownerName: environment.ownerName,
+                            tonUsdRate: environment.tonUsdRate(),
                             onReceive: { presentedSheet = .receive },
                             isLoading: isRefreshing,
                             onRefresh: refreshAccount
@@ -499,8 +507,9 @@ private struct WalletDashboard: View {
                         account: account,
                         canForceRetry: walletSnapshot?.send.resolution?.canForceRetry == true,
                         session: session,
-                        recipientName: environment.recipientName
-                    ) {
+                        recipientName: environment.recipientName,
+                        tonUsdRate: environment.tonUsdRate
+                    ) { _ in
                         refreshAccount()
                     }
                 }
@@ -891,6 +900,7 @@ private struct BalancePanel: View {
     @Binding var isBalanceVisible: Bool
     let account: WalletAccountSnapshot?
     let ownerName: String
+    let tonUsdRate: Double?
     let onReceive: () -> Void
     let isLoading: Bool
     let onRefresh: () -> Void
@@ -959,6 +969,13 @@ private struct BalancePanel: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Balance")
             .accessibilityValue(isBalanceVisible ? "\(displayedBalance) GRAM" : "Hidden")
+            if isBalanceVisible, let account,
+               let usd = WalletUsdValue.format(grams: account.balanceGrams, rate: tonUsdRate) {
+                Text("≈ \(usd) USD")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+
             HStack {
                 Text(ownerName.uppercased())
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
@@ -1651,12 +1668,13 @@ private struct SendWalletView: View {
     let account: WalletAccountSnapshot?
     let canForceRetry: Bool
     let session: WalletSession
-    let onSubmitted: () -> Void
+    let onSubmitted: (WalletTransferReceipt) -> Void
     let recipientName: String?
     let onClose: (@MainActor () -> Void)?
     let onInputFocusChanged: @MainActor (Bool) -> Void
     let transport: (any WalletProviderTransport)?
-    init(wallet: StoredWallet, account: WalletAccountSnapshot?, canForceRetry: Bool, session: WalletSession, initialDestination: String = "", recipientName: String? = nil, onClose: (@MainActor () -> Void)? = nil, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }, transport: (any WalletProviderTransport)? = nil, onSubmitted: @escaping () -> Void) {
+    let tonUsdRate: @MainActor () -> Double?
+    init(wallet: StoredWallet, account: WalletAccountSnapshot?, canForceRetry: Bool, session: WalletSession, initialDestination: String = "", recipientName: String? = nil, onClose: (@MainActor () -> Void)? = nil, onInputFocusChanged: @escaping @MainActor (Bool) -> Void = { _ in }, transport: (any WalletProviderTransport)? = nil, tonUsdRate: @escaping @MainActor () -> Double? = { nil }, onSubmitted: @escaping (WalletTransferReceipt) -> Void) {
         self.wallet = wallet
         self.account = account
         self.canForceRetry = canForceRetry
@@ -1665,6 +1683,7 @@ private struct SendWalletView: View {
         self.onClose = onClose
         self.onInputFocusChanged = onInputFocusChanged
         self.transport = transport
+        self.tonUsdRate = tonUsdRate
         self.onSubmitted = onSubmitted
         self._destination = State(initialValue: initialDestination)
     }
@@ -1674,6 +1693,7 @@ private struct SendWalletView: View {
     @State private var showsComment = false
     @State private var amount = ""
     @State private var isSubmitting = false
+    @State private var didSubmit = false
     @State private var isConfirming = false
     @State private var forceRetryAvailable = false
     @State private var force = false
@@ -1721,6 +1741,14 @@ private struct SendWalletView: View {
                             .focused($focusedField, equals: .amount)
                         Text("GRAM").font(.title2.weight(.semibold))
                             .foregroundStyle(.secondary)
+                    }
+                    if let usd = WalletUsdValue.format(grams: normalizedAmount.isEmpty ? "0" : normalizedAmount, rate: tonUsdRate()) {
+                        Text("≈ \(usd) USD")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.quaternary, in: Capsule())
                     }
                     if showsComment {
                         TextField("Add a comment", text: $comment)
@@ -1869,7 +1897,7 @@ private struct SendWalletView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    isSubmitting || normalizedDestination.isEmpty || normalizedAmount.isEmpty
+                    isSubmitting || didSubmit || normalizedDestination.isEmpty || normalizedAmount.isEmpty
                         || (forceRetryAvailable && !force)
                 )
                 .keyboardShortcut(.defaultAction)
@@ -1931,29 +1959,35 @@ private struct SendWalletView: View {
             }
         }
         .disabled(
-            isSubmitting || normalizedDestination.isEmpty || normalizedAmount.isEmpty
+            isSubmitting || didSubmit || normalizedDestination.isEmpty || normalizedAmount.isEmpty
                 || (forceRetryAvailable && !force)
         )
     }
 
     private func submit() {
+        guard !isSubmitting, !didSubmit else { return }
+        let submittedAmount = normalizedAmount
+        let submittedDestination = normalizedDestination
+        let submittedForce = force
+        let submittedComment = comment
+        let submittedUsd = WalletUsdValue.format(grams: submittedAmount, rate: tonUsdRate())
         isSubmitting = true
         errorMessage = nil
         Task {
             do {
-                guard let nanograms = GramAmount.nanograms(from: normalizedAmount) else {
+                guard let nanograms = GramAmount.nanograms(from: submittedAmount) else {
                     throw SendPresentationError.invalidAmount
                 }
                 let result = try await session.send(
                     SendRequest(
                         operationId: UUID().uuidString.lowercased(),
-                        force: force,
+                        force: submittedForce,
                         intent: SendIntent(
                             expiration: .engineDefault,
                             messages: [SendMessage(
-                                destination: normalizedDestination,
+                                destination: submittedDestination,
                                 amount: .exact(nanograms: nanograms),
-                                body: comment.isEmpty ? .empty : .comment(text: comment),
+                                body: submittedComment.isEmpty ? .empty : .comment(text: submittedComment),
                                 bounce: false,
                                 stateInit: nil
                             )]
@@ -1962,7 +1996,13 @@ private struct SendWalletView: View {
                 )
                 switch result.phase {
                 case .submitted, .confirmed:
-                    onSubmitted()
+                    didSubmit = true
+                    onSubmitted(WalletTransferReceipt(
+                        operationId: result.operationId,
+                        amountGrams: GramAmount.format(nanograms: nanograms),
+                        usdValue: submittedUsd, comment: submittedComment,
+                        messageHash: result.messageHash, isConfirmed: result.phase == .confirmed
+                    ))
                     if onClose == nil { dismiss() }
                 case .submissionUnknown:
                     forceRetryAvailable = session.snapshot.send.resolution?.canForceRetry == true

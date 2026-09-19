@@ -91,3 +91,20 @@ The app and the statically linked Rust library target iOS 13.0. The copied
 Wallet Engine UI uses modern SwiftUI/Observation APIs and is explicitly marked
 `@available(iOS 18.0, *)`. Wallet in Settings and Money in the attachment menu
 are offered on iOS 18 and later. Flash account networking is available on iOS 13.
+
+## Fiat estimate and chat receipt
+
+The SwiftUI wallet reads the active account's `ton_usd_rate` app-config value
+(https://core.telegram.org/api/config#ton_usd_rate). Valid positive rates provide
+approximate USD amounts below the balance and send amount. Missing/invalid rates
+hide fiat values; there is no hardcoded rate. Decimal display conversion is
+separate from the exact nanogram transfer amount.
+
+Sending from Money shares a blue receipt photo with a caption through the normal
+chat message pipeline, including the existing paid-message confirmation. It is
+visible in other Telegram clients too. It is a sender-provided receipt, not a new
+server-authenticated Telegram payment media type. The receipt records the rate
+estimate at submission, comment and external-message hash. Only `.submitted` or
+`.confirmed` engine results create a receipt; submitted is labelled distinctly
+from blockchain confirmation. Unknown/failed/cancelled sends do not create one.
+No transfer or message was sent during local implementation checks.

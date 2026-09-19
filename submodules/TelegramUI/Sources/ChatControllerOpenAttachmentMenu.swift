@@ -868,7 +868,16 @@ extension ChatControllerImpl {
                     case .money:
                         guard #available(iOS 18.0, *) else { return false }
                         if let peer = strongSelf.presentationInterfaceState.renderedPeer?.peer {
-                            let controller = WalletScreen(context: context, recipientId: peer.id)
+                            let controller = WalletScreen(context: context, recipientId: peer.id, onReceipt: { [weak self] text, media in
+                                // Let the attachment finish closing before presenting a paid-message alert.
+                                Queue.mainQueue().after(0.4) {
+                                    guard let strongSelf = self else { return }
+                                    let message = EnqueueMessage.message(text: text, attributes: [], inlineStickers: [:], mediaReference: media.map { .standalone(media: $0) }, threadId: strongSelf.chatLocation.threadId, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])
+                                    strongSelf.presentPaidMessageAlertIfNeeded(completion: { [weak self] postpone in
+                                        self?.sendMessages([message], postpone: postpone)
+                                    })
+                                }
+                            })
                             completion(controller, controller.mediaPickerContext)
                             strongSelf.controllerNavigationDisposable.set(nil)
                         }

@@ -29,10 +29,13 @@ public final class WalletScreen: ViewController, AttachmentContainable {
     private var host: UIHostingController<AnyView>?
     private var lastLayout: ContainerViewLayout?
     private let recipientId: PeerId?
+    private let onReceipt: ((String, TelegramMediaImage?) -> Void)?
+    private var sharedOperations = Set<String>()
 
-    public init(context: AccountContext, recipientId: PeerId? = nil) {
+    public init(context: AccountContext, recipientId: PeerId? = nil, onReceipt: ((String, TelegramMediaImage?) -> Void)? = nil) {
         self.context = context
         self.recipientId = recipientId
+        self.onReceipt = onReceipt
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -63,6 +66,18 @@ public final class WalletScreen: ViewController, AttachmentContainable {
                     guard let self, recipientId != nil else { return }
                     if focused { self.requestAttachmentMenuExpansion() }
                     self.updateTabBarVisibility(!focused, .animated(duration: 0.25, curve: .easeInOut))
+                },
+                tonUsdRate: { [weak self] in
+                    guard let rate = self?.context.currentAppConfiguration.with({ $0.data?["ton_usd_rate"] as? Double }),
+                          rate.isFinite, rate > 0 else { return nil }
+                    return rate
+                },
+                onTransfer: { [weak self] receipt in
+                    guard let self, recipientId != nil, let onReceipt = self.onReceipt,
+                          self.sharedOperations.insert(receipt.operationId).inserted else { return }
+                    let recipientName = [peers.1?.firstName, peers.1?.lastName].compactMap { $0 }.joined(separator: " ")
+                    let message = WalletReceiptCard.message(context: self.context, receipt: receipt, recipientName: recipientName)
+                    onReceipt(message.0, message.1)
                 },
                 transport: TelegramWalletTransport(context: self.context, recipient: peers.1)
             )
