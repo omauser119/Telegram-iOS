@@ -1,0 +1,3 @@
+Balance card layout adapted from https://github.com/i582/wallet-engine,
+examples/swift/WalletEngineApp/Views/ContentView.swift, under MIT.
+This module is an integration preview, not a complete wallet-engine port.

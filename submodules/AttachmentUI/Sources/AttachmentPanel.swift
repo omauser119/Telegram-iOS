@@ -213,6 +213,9 @@ private final class AttachButtonComponent: CombinedComponent {
             let strings = component.strings
 
             switch component.type {
+            case .money:
+                name = "Money"
+                imageName = "Chat/Attach Menu/Money"
             case .gallery:
                 name = strings.Attachment_Gallery
                 imageName = "Chat/Attach Menu/Gallery"
@@ -2169,6 +2172,8 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
             buttonTransition.setFrame(view: selectedButtonView, frame: buttonFrame)
             var accessibilityTitle = ""
             switch type {
+            case .money:
+                accessibilityTitle = "Money"
             case .gallery:
                 accessibilityTitle = self.presentationData.strings.Attachment_Gallery
             case .file:

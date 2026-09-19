@@ -10,6 +10,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/WalletUI",
         "//submodules/AccountContext",
         "//submodules/AccountUtils",
         "//submodules/ActionSheetPeerItem",

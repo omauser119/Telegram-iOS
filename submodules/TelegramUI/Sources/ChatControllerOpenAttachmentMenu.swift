@@ -1,4 +1,5 @@
 import Foundation
+import WalletUI
 import UIKit
 import Display
 import SwiftSignalKit
@@ -231,6 +232,10 @@ extension ChatControllerImpl {
             }
             
             var availableButtons: [AttachmentButtonType] = [.gallery, .file]
+            if let user = self.presentationInterfaceState.renderedPeer?.peer as? TelegramUser,
+               user.botInfo == nil, user.id != context.account.peerId, banSendText == nil {
+                availableButtons.append(.money)
+            }
             if banSendText == nil {
                 availableButtons.append(.location)
                 availableButtons.append(.contact)
@@ -860,6 +865,12 @@ extension ChatControllerImpl {
                             strongSelf.push(demoController)
                             return false
                         }
+                    case .money:
+                        if let peer = strongSelf.presentationInterfaceState.renderedPeer?.peer {
+                            strongSelf.attachmentController?.dismiss(animated: true)
+                            strongSelf.push(WalletScreen(context: context, recipientId: peer.id))
+                        }
+                        return false
                     case .gift:
                         if let peer = strongSelf.presentationInterfaceState.renderedPeer?.peer, let starsContext = context.starsContext {
                             let premiumGiftOptions = strongSelf.presentationInterfaceState.premiumGiftOptions

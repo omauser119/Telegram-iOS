@@ -1,0 +1,314 @@
+[
+  {
+    "method": "toncenter.getStreamingUrl",
+    "function_offset": "0x1497e00",
+    "string_reference_offset": "0x1497e9d",
+    "candidates": [
+      {
+        "id": "0xcdaf63c7",
+        "file_offset": "0x1497e88"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "toncenter.performApiRequest",
+    "function_offset": "0x1497f80",
+    "string_reference_offset": "0x1498221",
+    "candidates": [
+      {
+        "id": "0x8d7bdd61",
+        "file_offset": "0x1498022"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.disableBackup",
+    "function_offset": "0x149c110",
+    "string_reference_offset": "0x149c43b",
+    "candidates": [
+      {
+        "id": "0x0b0bf0da",
+        "file_offset": "0x149c1b4"
+      },
+      {
+        "id": "0x60bccb0d",
+        "file_offset": "0x149c255"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.enableBackup",
+    "function_offset": "0x149c550",
+    "string_reference_offset": "0x149cabf",
+    "candidates": [
+      {
+        "id": "0x81a2b0f3",
+        "file_offset": "0x149c5fb"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.exportSecretPhrase",
+    "function_offset": "0x149cc50",
+    "string_reference_offset": "0x149cde3",
+    "candidates": [
+      {
+        "id": "0x9077c9ac",
+        "file_offset": "0x149cce0"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.fetchEncryptedSecretPhrasePart",
+    "function_offset": "0x149cef0",
+    "string_reference_offset": "0x149cfcb",
+    "candidates": [
+      {
+        "id": "0xf53925cf",
+        "file_offset": "0x149cf92"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getBackupHolderDcs",
+    "function_offset": "0x149d180",
+    "string_reference_offset": "0x149d21d",
+    "candidates": [
+      {
+        "id": "0xd179d494",
+        "file_offset": "0x149d208"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getExistingWaltBalance",
+    "function_offset": "0x149d390",
+    "string_reference_offset": "0x149d42d",
+    "candidates": [
+      {
+        "id": "0x628746e3",
+        "file_offset": "0x149d418"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getGaslessInfo",
+    "function_offset": "0x149d4f0",
+    "string_reference_offset": "0x149d58d",
+    "candidates": [
+      {
+        "id": "0x742df0a1",
+        "file_offset": "0x149d578"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getProofChallenge",
+    "function_offset": "0x149d650",
+    "string_reference_offset": "0x149d6ed",
+    "candidates": [
+      {
+        "id": "0x2025e697",
+        "file_offset": "0x149d6d8"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getTransactions",
+    "function_offset": "0x149d920",
+    "string_reference_offset": "0x149da0b",
+    "candidates": [
+      {
+        "id": "0xa8830a83",
+        "file_offset": "0x149d9bd"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getTransactionsByIDs",
+    "function_offset": "0x149dc00",
+    "string_reference_offset": "0x149e33d",
+    "candidates": [
+      {
+        "id": "0x811ceab6",
+        "file_offset": "0x149dcd3"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getTransactionsByMsgHash",
+    "function_offset": "0x149e4d0",
+    "string_reference_offset": "0x149ec0d",
+    "candidates": [
+      {
+        "id": "0xa6bb795d",
+        "file_offset": "0x149e5a3"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.getUserAddresses",
+    "function_offset": "0x149eda0",
+    "string_reference_offset": "0x149f824",
+    "candidates": [
+      {
+        "id": "0x5275dfdd",
+        "file_offset": "0x149ee80"
+      },
+      {
+        "id": "0xf21158c6",
+        "file_offset": "0x149ef34"
+      },
+      {
+        "id": "0x1da448e2",
+        "file_offset": "0x149f01e"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.replaceWallet",
+    "function_offset": "0x149fab0",
+    "string_reference_offset": "0x149fcaa",
+    "candidates": [
+      {
+        "id": "0xd8c72eec",
+        "file_offset": "0x149fb44"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.sendTransfer",
+    "function_offset": "0x149fda0",
+    "string_reference_offset": "0x149ffa3",
+    "candidates": [
+      {
+        "id": "0xd37d8fdb",
+        "file_offset": "0x149fe3b"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectClaimRequest",
+    "function_offset": "0x14a01c0",
+    "string_reference_offset": "0x14a046f",
+    "candidates": [
+      {
+        "id": "0xd5a9848b",
+        "file_offset": "0x14a0262"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectCloseSession",
+    "function_offset": "0x14a0550",
+    "string_reference_offset": "0x14a061c",
+    "candidates": [
+      {
+        "id": "0x99c1ca3b",
+        "file_offset": "0x14a05e8"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectCreateSession",
+    "function_offset": "0x14a07a0",
+    "string_reference_offset": "0x14a087f",
+    "candidates": [
+      {
+        "id": "0xcc931046",
+        "file_offset": "0x14a0842"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectGetPending",
+    "function_offset": "0x14a0a40",
+    "string_reference_offset": "0x14a0c78",
+    "candidates": [
+      {
+        "id": "0x11aee065",
+        "file_offset": "0x14a0ade"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectGetSessions",
+    "function_offset": "0x14a0d80",
+    "string_reference_offset": "0x14a0e1d",
+    "candidates": [
+      {
+        "id": "0xa7ffb56e",
+        "file_offset": "0x14a0e08"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectNextEventId",
+    "function_offset": "0x14a0f00",
+    "string_reference_offset": "0x14a0fb2",
+    "candidates": [
+      {
+        "id": "0x775d7244",
+        "file_offset": "0x14a0f8b"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectRegisterKey",
+    "function_offset": "0x14a1100",
+    "string_reference_offset": "0x14a11d9",
+    "candidates": [
+      {
+        "id": "0x338bcf1c",
+        "file_offset": "0x14a119b"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectSubmitConnectResult",
+    "function_offset": "0x14a1470",
+    "string_reference_offset": "0x14a1733",
+    "candidates": [
+      {
+        "id": "0xc2c00779",
+        "file_offset": "0x14a1516"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  },
+  {
+    "method": "wallet.tonConnectSubmitResponse",
+    "function_offset": "0x14a1840",
+    "string_reference_offset": "0x14a1afc",
+    "candidates": [
+      {
+        "id": "0x4528f33d",
+        "file_offset": "0x14a18e6"
+      }
+    ],
+    "note": "Verify serialization order; later constants can be nested types."
+  }
+]

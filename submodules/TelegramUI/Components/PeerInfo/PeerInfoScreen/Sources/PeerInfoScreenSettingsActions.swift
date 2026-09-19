@@ -1,4 +1,5 @@
 import Foundation
+import WalletUI
 import UIKit
 import Display
 import AccountContext
@@ -50,6 +51,8 @@ extension PeerInfoScreenNode {
             self.headerNode.navigationButtonContainer.performAction?(.edit, nil, nil)
         case .proxy:
             self.controller?.push(proxySettingsController(context: self.context))
+        case .wallet:
+            self.controller?.push(WalletScreen(context: self.context))
         case .profile:
             self.controller?.push(PeerInfoScreenImpl(
                 context: self.context,

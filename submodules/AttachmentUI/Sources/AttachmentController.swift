@@ -30,6 +30,7 @@ public enum AttachmentButtonType: Equatable {
     case poll
     case app(AttachMenuBot)
     case gift
+    case money
     case sticker
     case emoji
     case audio
@@ -55,6 +56,8 @@ public enum AttachmentButtonType: Equatable {
             return "poll"
         case let .app(bot):
             return "app_\(bot.shortName)"
+        case .money:
+            return "money"
         case .gift:
             return "gift"
         case .sticker:
@@ -74,6 +77,9 @@ public enum AttachmentButtonType: Equatable {
 
     public static func ==(lhs: AttachmentButtonType, rhs: AttachmentButtonType) -> Bool {
         switch lhs {
+        case .money:
+            if case .money = rhs { return true }
+            return false
         case .gallery:
             if case .gallery = rhs {
                 return true
