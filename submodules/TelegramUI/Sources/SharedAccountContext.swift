@@ -721,19 +721,20 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 struct AccountPeerKey: Hashable {
                     let peerId: PeerId
                     let isTestingEnvironment: Bool
+                    let isFlashEnvironment: Bool
                 }
                 
                 var existingAccountPeerKeys = Set<AccountPeerKey>()
                 for accountRecord in addedAccounts {
                     if let account = accountRecord.1 {
-                        if existingAccountPeerKeys.contains(AccountPeerKey(peerId: account.peerId, isTestingEnvironment: account.testingEnvironment)) {
+                        if existingAccountPeerKeys.contains(AccountPeerKey(peerId: account.peerId, isTestingEnvironment: account.testingEnvironment, isFlashEnvironment: account.network.isFlashEnvironment)) {
                             let _ = accountManager.transaction({ transaction in
                                 transaction.updateRecord(accountRecord.0, { _ in
                                     return nil
                                 })
                             }).start()
                         } else {
-                            existingAccountPeerKeys.insert(AccountPeerKey(peerId: account.peerId, isTestingEnvironment: account.testingEnvironment))
+                            existingAccountPeerKeys.insert(AccountPeerKey(peerId: account.peerId, isTestingEnvironment: account.testingEnvironment, isFlashEnvironment: account.network.isFlashEnvironment))
                             if let index = self.activeAccountsValue?.accounts.firstIndex(where: { $0.0 == account.id }) {
                                 self.activeAccountsValue?.accounts.remove(at: index)
                                 self.managedAccountDisposables.set(nil, forKey: account.id)
@@ -1656,22 +1657,31 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             let (primary, activeAccounts, _) = activeAccountsAndInfo
             var appliedApsList: [Signal<Bool?, NoError>] = []
             var appliedVoipList: [Signal<Never, NoError>] = []
-            var activeProductionUserIds = activeAccounts.map({ $0.1 }).filter({ !$0.account.testingEnvironment }).map({ $0.account.peerId.id })
+            var activeProductionUserIds = activeAccounts.map({ $0.1 }).filter({ !$0.account.testingEnvironment && !$0.account.network.isFlashEnvironment }).map({ $0.account.peerId.id })
             var activeTestingUserIds = activeAccounts.map({ $0.1 }).filter({ $0.account.testingEnvironment }).map({ $0.account.peerId.id })
             
+            var activeFlashUserIds = activeAccounts.map({ $0.1 }).filter({ $0.account.network.isFlashEnvironment }).map({ $0.account.peerId.id })
+            let allFlashUserIds = activeFlashUserIds
             let allProductionUserIds = activeProductionUserIds
             let allTestingUserIds = activeTestingUserIds
             
             if !settings.allAccounts {
                 if let primary = primary {
-                    if !primary.account.testingEnvironment {
+                    if primary.account.network.isFlashEnvironment {
+                        activeFlashUserIds = [primary.account.peerId.id]
+                        activeProductionUserIds = []
+                        activeTestingUserIds = []
+                    } else if !primary.account.testingEnvironment {
+                        activeFlashUserIds = []
                         activeProductionUserIds = [primary.account.peerId.id]
                         activeTestingUserIds = []
                     } else {
                         activeProductionUserIds = []
+                        activeFlashUserIds = []
                         activeTestingUserIds = [primary.account.peerId.id]
                     }
                 } else {
+                    activeFlashUserIds = []
                     activeProductionUserIds = []
                     activeTestingUserIds = []
                 }
@@ -1681,9 +1691,11 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 let appliedAps: Signal<Bool, NoError>
                 let appliedVoip: Signal<Never, NoError>
                 
-                if !activeProductionUserIds.contains(account.account.peerId.id) && !activeTestingUserIds.contains(account.account.peerId.id) {
+                let activeEnvironmentUserIds = account.account.network.isFlashEnvironment ? activeFlashUserIds : (account.account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds)
+                let allEnvironmentUserIds = account.account.network.isFlashEnvironment ? allFlashUserIds : (account.account.testingEnvironment ? allTestingUserIds : allProductionUserIds)
+                if !activeEnvironmentUserIds.contains(account.account.peerId.id) {
                     if let apsNotificationToken {
-                        appliedAps = account.engine.accountData.unregisterNotificationToken(token: apsNotificationToken, type: .aps(encrypt: false), otherAccountUserIds: (account.account.testingEnvironment ? allTestingUserIds : allProductionUserIds).filter({ $0 != account.account.peerId.id }))
+                        appliedAps = account.engine.accountData.unregisterNotificationToken(token: apsNotificationToken, type: .aps(encrypt: false), otherAccountUserIds: allEnvironmentUserIds.filter({ $0 != account.account.peerId.id }))
                         |> map { _ -> Bool in
                         }
                         |> then(.single(true))
@@ -1697,11 +1709,11 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                         guard let token = token else {
                             return .complete()
                         }
-                        return account.engine.accountData.unregisterNotificationToken(token: token, type: .voip, otherAccountUserIds: (account.account.testingEnvironment ? allTestingUserIds : allProductionUserIds).filter({ $0 != account.account.peerId.id }))
+                        return account.engine.accountData.unregisterNotificationToken(token: token, type: .voip, otherAccountUserIds: allEnvironmentUserIds.filter({ $0 != account.account.peerId.id }))
                     }
                 } else {
                     if let apsNotificationToken {
-                        appliedAps = account.engine.accountData.registerNotificationToken(token: apsNotificationToken, type: .aps(encrypt: true), sandbox: sandbox, otherAccountUserIds: (account.account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.account.peerId.id }), excludeMutedChats: !settings.includeMuted)
+                        appliedAps = account.engine.accountData.registerNotificationToken(token: apsNotificationToken, type: .aps(encrypt: true), sandbox: sandbox, otherAccountUserIds: activeEnvironmentUserIds.filter({ $0 != account.account.peerId.id }), excludeMutedChats: !settings.includeMuted)
                     } else {
                         appliedAps = .single(true)
                     }
@@ -1711,7 +1723,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                         guard let token = token else {
                             return .complete()
                         }
-                        return account.engine.accountData.registerNotificationToken(token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: (account.account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.account.peerId.id }), excludeMutedChats: !settings.includeMuted)
+                        return account.engine.accountData.registerNotificationToken(token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: activeEnvironmentUserIds.filter({ $0 != account.account.peerId.id }), excludeMutedChats: !settings.includeMuted)
                         |> ignoreValues
                     }
                 }

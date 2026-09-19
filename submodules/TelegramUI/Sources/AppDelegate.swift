@@ -1274,7 +1274,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             })
             |> mapToSignal { authAndAccounts -> Signal<(UnauthorizedAccount, ((String, AccountRecordId, Bool)?, [(String, AccountRecordId, Bool)]))?, NoError> in
                 if let (primary, auth, accounts) = authAndAccounts {
-                    let phoneNumbers = combineLatest(accounts.map { context -> Signal<(AccountRecordId, String, Bool)?, NoError> in
+                    let phoneNumbers = combineLatest(accounts.filter { $0.account.network.isFlashEnvironment == auth.network.isFlashEnvironment }.map { context -> Signal<(AccountRecordId, String, Bool)?, NoError> in
                         return context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
                         |> map { peer -> (AccountRecordId, String, Bool)? in
                             if case let .user(user) = peer, let phone = user.phone {

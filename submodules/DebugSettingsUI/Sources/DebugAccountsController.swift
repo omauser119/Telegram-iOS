@@ -131,6 +131,12 @@ public func debugAccountsController(context: AccountContext, accountManager: Acc
                 ActionSheetButtonItem(title: "Test", color: .accent, action: {
                     dismissAction()
                     context.sharedContext.beginNewAuth(testingEnvironment: true)
+                }),
+                ActionSheetButtonItem(title: "Flash", color: .accent, action: {
+                    dismissAction()
+                    let _ = accountManager.transaction { transaction in
+                        let _ = transaction.createAuth([.environment(AccountEnvironmentAttribute(environment: .flash))])
+                    }.start()
                 })
             ]),
         ActionSheetItemGroup(items: [ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, action: { dismissAction() })])

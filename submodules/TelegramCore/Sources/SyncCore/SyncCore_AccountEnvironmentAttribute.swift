@@ -4,6 +4,7 @@ import Postbox
 public enum AccountEnvironment: Int32 {
     case production = 0
     case test = 1
+    case flash = 2
 }
 
 public final class AccountEnvironmentAttribute: Codable, Equatable {

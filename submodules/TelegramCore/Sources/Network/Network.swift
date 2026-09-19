@@ -463,7 +463,8 @@ public struct NetworkInitializationArguments {
 private let cloudDataContext = Atomic<CloudDataContext?>(value: nil)
 #endif
 
-func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializationArguments, supplementary: Bool, datacenterId: Int, keychain: Keychain, basePath: String, testingEnvironment: Bool, languageCode: String?, proxySettings: ProxySettings?, networkSettings: NetworkSettings?, phoneNumber: String?, useRequestTimeoutTimers: Bool, appConfiguration: AppConfiguration) -> Signal<Network, NoError> {
+func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializationArguments, supplementary: Bool, datacenterId: Int, keychain: Keychain, basePath: String, testingEnvironment: Bool, languageCode: String?, proxySettings: ProxySettings?, networkSettings: NetworkSettings?, phoneNumber: String?, useRequestTimeoutTimers: Bool, appConfiguration: AppConfiguration, flashEnvironment: Bool = false) -> Signal<Network, NoError> {
+    let datacenterId = flashEnvironment ? FlashNetworkConfiguration.datacenterId : datacenterId
     return Signal { subscriber in
         let queue = Queue()
         queue.async {
@@ -503,10 +504,19 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
                 }
             }
             
-            let useTempAuthKeys: Bool = true
+            if flashEnvironment {
+                apiEnvironment.datacenterAddressOverrides = [NSNumber(value: FlashNetworkConfiguration.datacenterId): FlashNetworkConfiguration.address()]
+                apiEnvironment.exclusiveDatacenterAddressOverrides = true
+                apiEnvironment.accessHostOverride = nil
+            }
+            let useTempAuthKeys: Bool = !flashEnvironment
             
             let context = MTContext(serialization: serialization, encryptionProvider: arguments.encryptionProvider, apiEnvironment: apiEnvironment, isTestingEnvironment: testingEnvironment, useTempAuthKeys: useTempAuthKeys)
             
+            if flashEnvironment {
+                context.customAuthPublicKeys = [FlashNetworkConfiguration.publicKey]
+            }
+
             if let networkSettings = networkSettings {
                 let useNetworkFramework: Bool
                 if let customValue = networkSettings.useNetworkFramework {
@@ -528,7 +538,9 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             
             let seedAddressList: [Int: [String]]
             
-            if testingEnvironment {
+            if flashEnvironment {
+                seedAddressList = [FlashNetworkConfiguration.datacenterId: [FlashNetworkConfiguration.host]]
+            } else if testingEnvironment {
                 seedAddressList = [
                     1: ["149.154.175.10"],
                     2: ["149.154.167.40"],
@@ -545,13 +557,13 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             }
             
             for (id, ips) in seedAddressList {
-                context.setSeedAddressSetForDatacenterWithId(id, seedAddressSet: MTDatacenterAddressSet(addressList: ips.map { MTDatacenterAddress(ip: $0, port: 443, preferForMedia: false, restrictToTcp: false, cdn: false, preferForProxy: false, secret: nil) }))
+                context.setSeedAddressSetForDatacenterWithId(id, seedAddressSet: MTDatacenterAddressSet(addressList: ips.map { MTDatacenterAddress(ip: $0, port: flashEnvironment ? FlashNetworkConfiguration.port : 443, preferForMedia: false, restrictToTcp: flashEnvironment, cdn: false, preferForProxy: false, secret: nil) }))
             }
             
             context.keychain = keychain
             var wrappedAdditionalSource: MTSignal?
             #if os(iOS)
-            if #available(iOS 10.0, *), !supplementary, arguments.isICloudEnabled {
+            if #available(iOS 10.0, *), !supplementary, !flashEnvironment, arguments.isICloudEnabled {
                 var cloudDataContextValue: CloudDataContext?
                 if let value = cloudDataContext.with({ $0 }) {
                     cloudDataContextValue = value
@@ -576,7 +588,9 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             #endif
             
             if !supplementary {
-                context.setDiscoverBackupAddressListSignal(MTBackupAddressSignals.fetchBackupIps(testingEnvironment, currentContext: context, additionalSource: wrappedAdditionalSource, phoneNumber: phoneNumber, mainDatacenterId: datacenterId))
+                if !flashEnvironment {
+                    context.setDiscoverBackupAddressListSignal(MTBackupAddressSignals.fetchBackupIps(testingEnvironment, currentContext: context, additionalSource: wrappedAdditionalSource, phoneNumber: phoneNumber, mainDatacenterId: datacenterId))
+                }
                 let externalRequestVerificationStream = arguments.externalRequestVerificationStream
                 context.setExternalRequestVerification({ nonce in
                     return MTSignal(generator: { subscriber in
@@ -806,6 +820,7 @@ public final class Network: NSObject, MTRequestMessageServiceDelegate {
     
     private let queue: Queue
     public let datacenterId: Int
+    public var isFlashEnvironment: Bool { self.context.apiEnvironment.exclusiveDatacenterAddressOverrides }
     public let context: MTContext
     private var networkHelper: NetworkHelper?
     let mtProto: MTProto

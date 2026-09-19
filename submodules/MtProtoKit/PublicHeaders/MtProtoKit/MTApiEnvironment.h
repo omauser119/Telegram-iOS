@@ -71,6 +71,8 @@
 @property (nonatomic) bool disableUpdates;
 @property (nonatomic) NSData * _Nullable tcpPayloadPrefix;
 @property (nonatomic) NSDictionary * _Nullable datacenterAddressOverrides;
+// When enabled, DCs outside the override map have no usable transport.
+@property (nonatomic) bool exclusiveDatacenterAddressOverrides;
 @property (nonatomic) NSString * _Nullable accessHostOverride;
 
 @property (nonatomic, strong, readonly) MTSocksProxySettings * _Nullable socksProxySettings;

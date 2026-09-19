@@ -76,6 +76,8 @@
 @property (nonatomic, strong, readonly) id<MTSerialization> _Nonnull serialization;
 @property (nonatomic, strong) id<EncryptionProvider> _Nonnull encryptionProvider;
 @property (nonatomic, strong, readonly) MTApiEnvironment * _Nonnull apiEnvironment;
+// nil uses Telegram's built-in keys; non-nil exclusively trusts these PEM keys.
+@property (nonatomic, copy) NSArray<NSString *> * _Nullable customAuthPublicKeys;
 @property (nonatomic, readonly) bool isTestingEnvironment;
 @property (nonatomic, readonly) bool useTempAuthKeys;
 @property (nonatomic) int32_t tempKeyExpiration;

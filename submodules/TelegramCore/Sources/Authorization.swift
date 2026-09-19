@@ -26,7 +26,7 @@ func switchToAuthorizedAccount(transaction: AccountManagerModifier<TelegramAccou
     }).max() ?? 0) + 1
     transaction.updateRecord(account.id, { _ in
         var attributes: [TelegramAccountManagerTypes.Attribute] = [
-            .environment(AccountEnvironmentAttribute(environment: account.testingEnvironment ? .test : .production)),
+            .environment(AccountEnvironmentAttribute(environment: account.network.isFlashEnvironment ? .flash : (account.testingEnvironment ? .test : .production))),
             .sortOrder(AccountSortOrderAttribute(order: nextSortOrder))
         ]
         if isSupportUser {

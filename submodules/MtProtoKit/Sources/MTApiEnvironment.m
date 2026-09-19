@@ -808,6 +808,7 @@ NSString *suffix = @"";
     result.disableUpdates = self.disableUpdates;
     result.tcpPayloadPrefix = self.tcpPayloadPrefix;
     result.datacenterAddressOverrides = self.datacenterAddressOverrides;
+    result.exclusiveDatacenterAddressOverrides = self.exclusiveDatacenterAddressOverrides;
     result.accessHostOverride = self.accessHostOverride;
     result->_socksProxySettings = self.socksProxySettings;
     result->_networkSettings = self.networkSettings;
@@ -835,6 +836,7 @@ NSString *suffix = @"";
     result.disableUpdates = self.disableUpdates;
     result.tcpPayloadPrefix = self.tcpPayloadPrefix;
     result.datacenterAddressOverrides = self.datacenterAddressOverrides;
+    result.exclusiveDatacenterAddressOverrides = self.exclusiveDatacenterAddressOverrides;
     result.accessHostOverride = self.accessHostOverride;
     
     [result _updateApiInitializationHash];
@@ -859,6 +861,7 @@ NSString *suffix = @"";
     result.disableUpdates = self.disableUpdates;
     result.tcpPayloadPrefix = self.tcpPayloadPrefix;
     result.datacenterAddressOverrides = self.datacenterAddressOverrides;
+    result.exclusiveDatacenterAddressOverrides = self.exclusiveDatacenterAddressOverrides;
     result.accessHostOverride = self.accessHostOverride;
     
     [result _updateApiInitializationHash];
@@ -883,6 +886,7 @@ NSString *suffix = @"";
     result.disableUpdates = self.disableUpdates;
     result.tcpPayloadPrefix = self.tcpPayloadPrefix;
     result.datacenterAddressOverrides = self.datacenterAddressOverrides;
+    result.exclusiveDatacenterAddressOverrides = self.exclusiveDatacenterAddressOverrides;
     result.accessHostOverride = self.accessHostOverride;
     
     [result _updateApiInitializationHash];
@@ -907,6 +911,7 @@ NSString *suffix = @"";
     result.disableUpdates = self.disableUpdates;
     result.tcpPayloadPrefix = self.tcpPayloadPrefix;
     result.datacenterAddressOverrides = self.datacenterAddressOverrides;
+    result.exclusiveDatacenterAddressOverrides = self.exclusiveDatacenterAddressOverrides;
     result.accessHostOverride = self.accessHostOverride;
     
     [result _updateApiInitializationHash];

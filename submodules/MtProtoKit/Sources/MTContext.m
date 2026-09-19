@@ -937,6 +937,13 @@ static void copyKeychainDictionaryKey(NSString * _Nonnull group, NSString * _Non
         if (block == nil)
             return;
         
+        if (_apiEnvironment.exclusiveDatacenterAddressOverrides) {
+            [_apiEnvironment.datacenterAddressOverrides enumerateKeysAndObjectsUsingBlock:^(NSNumber *datacenterId, MTDatacenterAddress *address, BOOL *stop) {
+                block(datacenterId.integerValue, [[MTDatacenterAddressSet alloc] initWithAddressList:@[address]], stop);
+            }];
+            return;
+        }
+
         NSMutableSet *processedDatacenterIds = [[NSMutableSet alloc] init];
         
         [_datacenterAddressSetById enumerateKeysAndObjectsUsingBlock:^(NSNumber *nDatacenterId, MTDatacenterAddressSet *addressSet, BOOL *stop)
@@ -958,6 +965,11 @@ static void copyKeychainDictionaryKey(NSString * _Nonnull group, NSString * _Non
     __block MTDatacenterAddressSet *result = nil;
     [[MTContext contextQueue] dispatchOnQueue:^
     {
+        if (_apiEnvironment.exclusiveDatacenterAddressOverrides) {
+            MTDatacenterAddress *address = _apiEnvironment.datacenterAddressOverrides[@(datacenterId)];
+            result = address == nil ? nil : [[MTDatacenterAddressSet alloc] initWithAddressList:@[address]];
+            return;
+        }
         MTDatacenterAddressSet *addressSet = _datacenterAddressSetById[@(datacenterId)];
         if (addressSet != nil && addressSet.addressList.count != 0) {
             result = _datacenterAddressSetById[@(datacenterId)];
@@ -1020,6 +1032,9 @@ static void copyKeychainDictionaryKey(NSString * _Nonnull group, NSString * _Non
     {
         MTDatacenterAddress *overrideAddress = _apiEnvironment.datacenterAddressOverrides[@(datacenterId)];
         bool isAddressOverride = false;
+        if (_apiEnvironment.exclusiveDatacenterAddressOverrides && overrideAddress == nil) {
+            return;
+        }
         if (overrideAddress != nil) {
             isAddressOverride = true;
             [results addObject:[[MTTransportScheme alloc] initWithTransportClass:[MTTcpTransport class] address:overrideAddress media:false]];
@@ -1222,6 +1237,9 @@ static void copyKeychainDictionaryKey(NSString * _Nonnull group, NSString * _Non
 {
     [[MTContext contextQueue] dispatchOnQueue:^
     {
+        if (_apiEnvironment.exclusiveDatacenterAddressOverrides) {
+            return;
+        }
         if (_transportSchemeDisposableByDatacenterId == nil)
             _transportSchemeDisposableByDatacenterId = [[NSMutableDictionary alloc] init];
         id<MTDisposable> disposable = _transportSchemeDisposableByDatacenterId[@(datacenterId)];
@@ -1410,6 +1428,9 @@ static void copyKeychainDictionaryKey(NSString * _Nonnull group, NSString * _Non
 }
 
 - (void)_beginBackupAddressDiscoveryWithDelay:(double)delay {
+    if (_apiEnvironment.exclusiveDatacenterAddressOverrides) {
+        return;
+    }
     if (_backupAddressListDisposable == nil && _discoverBackupAddressListSignal != nil) {
         __weak MTContext *weakSelf = self;
         _backupAddressListDisposable = [[[_discoverBackupAddressListSignal delay:delay onQueue:[MTQueue mainQueue]] onDispose:^{
@@ -1424,6 +1445,9 @@ static void copyKeychainDictionaryKey(NSString * _Nonnull group, NSString * _Non
 
 - (void)beginExplicitBackupAddressDiscovery {
     [[MTContext contextQueue] dispatchOnQueue:^{
+        if (_apiEnvironment.exclusiveDatacenterAddressOverrides) {
+            return;
+        }
         [_backupAddressListDisposable dispose];
         _backupAddressListDisposable = nil;
         [self _beginBackupAddressDiscoveryWithDelay:0.0];

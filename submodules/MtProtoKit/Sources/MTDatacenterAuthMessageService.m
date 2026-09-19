@@ -169,7 +169,14 @@ typedef enum {
     _authKey = nil;
     _encryptedClientData = nil;
     
-    if (mtProto.cdn) {
+    if (mtProto.context.customAuthPublicKeys != nil) {
+        NSMutableArray<MTDatacenterAuthPublicKey *> *keys = [[NSMutableArray alloc] init];
+        for (NSString *pem in mtProto.context.customAuthPublicKeys) {
+            [keys addObject:[[MTDatacenterAuthPublicKey alloc] initWithPublicKey:pem]];
+        }
+        _publicKeys = keys;
+        _stage = MTDatacenterAuthStagePQ;
+    } else if (mtProto.cdn) {
         _publicKeys = [self convertPublicKeysFromDictionaries:[mtProto.context publicKeysForDatacenterWithId:mtProto.datacenterId]];
         if (_publicKeys.count == 0) {
             _stage = MTDatacenterAuthStageWaitingForPublicKeys;
