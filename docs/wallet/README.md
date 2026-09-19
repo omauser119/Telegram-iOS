@@ -14,7 +14,8 @@ actual client without presenting fake balances or successful transfers.
   logged-in account's MTProto network. No proof is signed or persisted.
 - macOS 26 GitHub Actions build, ephemeral signing, IPA and dSYM artifacts.
   Adapted from https://github.com/zavolo/opengram-ios/blob/master/.github/workflows/build.yml.
-  Requires repository secrets `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`.
+  Uses `build-system/appstore-configuration.json`, matching the reference;
+  no additional repository API secrets are required.
   Artifacts require appropriate re-signing for installation. No releases publish
   automatically. The workflow retains the upstream app identifier/profile
   configuration; a distinct installable app identity is still to be configured.

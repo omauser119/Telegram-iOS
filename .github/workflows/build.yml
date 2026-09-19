@@ -22,15 +22,6 @@ jobs:
       contents: read
 
     steps:
-      - name: Check build credentials
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-        run: |
-          test -n "$TELEGRAM_API_ID" && test -n "$TELEGRAM_API_HASH" || {
-            echo "::error::Set TELEGRAM_API_ID and TELEGRAM_API_HASH repository secrets."
-            exit 1
-          }
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -175,26 +166,6 @@ jobs:
           EOF
           cp -f "$REGEN_DIR"/*.mobileprovision build-system/fake-codesigning/profiles/
 
-      - name: Configure fork credentials
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-        run: |
-          python3 - <<'PYCONFIG'
-          import json, os
-          from pathlib import Path
-          api_id = os.environ.get("TELEGRAM_API_ID", "")
-          api_hash = os.environ.get("TELEGRAM_API_HASH", "")
-          if not api_id.isdigit() or len(api_hash) != 32:
-              raise SystemExit("Set repository secrets TELEGRAM_API_ID and TELEGRAM_API_HASH")
-          root = Path("/Users/Shared/telegram-ios")
-          config = json.loads((root / "build-system/appstore-configuration.json").read_text())
-          config.update(api_id=api_id, api_hash=api_hash, is_appstore_build="false")
-          target = root / "build-input/wallet-configuration.json"
-          target.parent.mkdir(parents=True, exist_ok=True)
-          target.write_text(json.dumps(config))
-          PYCONFIG
-
       - name: Build the App
         run: |
           set -x
@@ -226,7 +197,7 @@ jobs:
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             build \
-            --configurationPath="build-input/wallet-configuration.json" \
+            --configurationPath="build-system/appstore-configuration.json" \
             --codesigningInformationPath=build-system/fake-codesigning \
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER" \
