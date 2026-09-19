@@ -8,6 +8,8 @@ objc_library(
     ]),
     copts = [
         "-Werror",
+        # Legacy UIKit adapters remain usable on iOS 18; keep deprecations as warnings.
+        "-Wno-error=deprecated-declarations",
     ],
     hdrs = glob([
         "Source/UIKitRuntimeUtils/*.h",
