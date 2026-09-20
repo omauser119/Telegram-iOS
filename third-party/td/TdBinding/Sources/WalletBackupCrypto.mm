@@ -16,7 +16,7 @@ template <typename T> T take(tde2e_api::Result<T> result) {
     return std::move(result.value());
 }
 std::string_view view(NSData *data) { return {data.length ? (const char *)data.bytes : "", data.length}; }
-NSData *data(std::string_view bytes) { return [NSData dataWithBytes:bytes.data() length:bytes.size()]; }
+NSData *walletNSData(std::string_view bytes) { return [NSData dataWithBytes:bytes.data() length:bytes.size()]; }
 void fail(NSError **error) {
     if (error) *error = [NSError errorWithDomain:@"org.telegram.wallet-backup-crypto" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Invalid or undecryptable wallet backup"}];
 }
@@ -36,7 +36,7 @@ void fail(NSError **error) {
         Key key(take(tde2e_api::key_generate_temporary_private_key()));
         auto pub = take(tde2e_api::key_to_public_key(key.id));
         wallet_backup::require(pub.size() == 32);
-        auto result = [[self alloc] initWithKey:key.id publicKey:data(pub)];
+        auto result = [[self alloc] initWithKey:key.id publicKey:walletNSData(pub)];
         if (result) key.id = 0;
         return result;
     } catch (const std::exception &) { fail(error); return nil; }
@@ -60,7 +60,7 @@ void fail(NSError **error) {
             shares[i] = wallet_backup::unpackShare(plain.value);
         }
         wallet_backup::Secret secret(wallet_backup::xorThree(shares[0],shares[1],shares[2]));
-        return data(secret.value);
+        return walletNSData(secret.value);
     } catch (const std::exception &) { fail(error); return nil; }
 }
 @end
@@ -84,7 +84,7 @@ void fail(NSError **error) {
             Key shared(take(tde2e_api::key_from_ecdh(ephemeral.id,holder.id)));
             wallet_backup::Secret plain(wallet_backup::packShare(shares[i]));
             auto encrypted = take(tde2e_api::encrypt_message_for_one(shared.id,plain.value));
-            [result addObject:data(pubBytes + encrypted)];
+            [result addObject:walletNSData(pubBytes + encrypted)];
         }
         return result;
     } catch (const std::exception &) { fail(error); return nil; }
