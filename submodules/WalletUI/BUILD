@@ -4,6 +4,7 @@ swift_library(
     module_name = "WalletUI",
     srcs = glob(["Sources/**/*.swift"]),
     deps = [
+        "//third-party/td:TdBinding",
         "//submodules/WalletEngineUI",
         "//submodules/AttachmentUI",
         "//submodules/AccountContext",

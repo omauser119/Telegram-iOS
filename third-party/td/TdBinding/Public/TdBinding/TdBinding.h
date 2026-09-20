@@ -2,6 +2,7 @@
 #define TDBINDING_H
 
 #import <Foundation/Foundation.h>
+#import <TdBinding/WalletBackupCrypto.h>
 
 #ifdef __cplusplus
 extern "C" {

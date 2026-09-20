@@ -148,6 +148,8 @@ objc_library(
         ":td",
     ],
     sdk_frameworks = [
+        "Foundation",
+        "Security",
     ],
     visibility = [
         "//visibility:public",

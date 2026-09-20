@@ -314,13 +314,18 @@ private final class AttachButtonComponent: CombinedComponent {
                     fileReference = .attachBot(peer: peer, media: imageFile)
                 }
 
+                var iconTintColor: UIColor? = tintColor
+                if case .money = component.type {
+                    iconTintColor = nil
+                }
+
                 let icon = icon.update(
                     component: IconComponent(
                         account: component.context.account,
                         name: imageName,
                         fileReference: fileReference,
                         animationName: nil,
-                        tintColor: tintColor
+                        tintColor: iconTintColor
                     ),
                     availableSize: iconSize,
                     transition: context.transition

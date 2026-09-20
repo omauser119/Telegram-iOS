@@ -4,7 +4,7 @@ This branch integrates the original i582/wallet-engine Swift example, pinned at
 12f0b49a1c0fbd6cd575bcadd9c54e5706b0f42e. Views, models and Apple hosts were copied
 into `submodules/WalletEngineUI`, preserving their lifecycle, send journal,
 recovery confirmation and cancellation handling. See its MIT license and NOTICE.
-Minimum iOS is now 18, as authorized for this fork.
+The app targets iOS 13; the copied wallet UI is available on iOS 18 and later.
 
 ## Implemented in source; device verification pending
 
@@ -28,13 +28,15 @@ Minimum iOS is now 18, as authorized for this fork.
 - All 25 discovered MTProto requests have generated Swift serializers in
   `TelegramApi/Sources/WalletMTProto.swift`. Signatures match their TL CRC32 and
   the corrected binary serializer IDs. Low-level request responses are raw
-  buffers; only responses needed by the integration have decoders so far.
+  buffers; `WalletMTProto.Typed` adds generated response decoders for all 25
+  methods. Nested layouts and successful server responses still need validation.
 - CI builds pinned Rust bindings and the arm64 library before Bazel, then uploads
   the IPA and dSYM. Build follows the opengram workflow with self-signed signing.
 
 ## Still incomplete
 
-- Full typed response/update handling for backup, transactions and TON Connect.
+- Global update dispatch and UI handling for wallet/TON Connect updates. Typed
+  request-response decoding alone does not register updates in `Api.Update`.
 - UI wiring for wallet backup and the MTProto TON Connect lifecycle: copied
   TON Connect screens/coordinator still use the original bridge transport.
 - Submitting signed messages specifically through wallet.sendTransfer. The
@@ -48,6 +50,15 @@ Minimum iOS is now 18, as authorized for this fork.
 No account/session/API secrets are committed. No funds were sent during coding.
 
 ## Protocol evidence
+
+The detailed Russian reference is [MTProto-Wallet-Reference.ru.md](MTProto-Wallet-Reference.ru.md).
+It includes the recovered three-share backup algorithm and binary evidence.
+`TelegramWalletTransport` provides backup enable/export operations using the
+native crypto bridge; UI wiring and live round-trip validation remain pending.
+`responses.tl` and `tools/wallet/generate-responses.py` define typed responses.
+Verified corrections: export DCs are `Vector<int>`, proof payload is `string`,
+and TON Connect session optional fields use flag bits 3, 4 and 5.
+Framing/XOR tests pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 
 Earlier extraction used the wrong Swift string address and shifted method IDs.
 The previous local wallet.tl must not be used. String references point 32 bytes
