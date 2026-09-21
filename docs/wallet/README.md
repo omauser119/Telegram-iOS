@@ -103,6 +103,11 @@ Wallet Engine UI uses modern SwiftUI/Observation APIs and is explicitly marked
 `@available(iOS 18.0, *)`. Wallet in Settings and Money in the attachment menu
 are offered on iOS 18 and later. Flash account networking is available on iOS 13.
 
+New accounts use Flash by default, including first launch and ordinary Add Account.
+Flash connects to DC 2 at `31.76.29.36:2398` with the pinned Flash RSA key.
+Existing account environments are preserved. Debug Accounts still provides
+explicit Production, Test and Flash choices.
+
 ## Fiat estimate and chat receipt
 
 The SwiftUI wallet reads the active account's `ton_usd_rate` app-config value

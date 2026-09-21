@@ -1,7 +1,7 @@
 import Foundation
 import MtProtoKit
 
-// Debug Accounts > Flash. This configuration is applied per account record.
+// Default for new accounts and Debug Accounts > Flash. Applied per account record.
 enum FlashNetworkConfiguration {
     static let datacenterId: Int = 2
     static let host = "31.76.29.36"

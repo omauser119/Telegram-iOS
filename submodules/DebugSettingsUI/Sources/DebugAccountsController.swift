@@ -119,12 +119,17 @@ public func debugAccountsController(context: AccountContext, accountManager: Acc
             ActionSheetItemGroup(items: [
                 ActionSheetButtonItem(title: "Production", color: .accent, action: {
                     dismissAction()
+                    let beginProductionAuth = {
+                        let _ = accountManager.transaction { transaction in
+                            let _ = transaction.createAuth([.environment(AccountEnvironmentAttribute(environment: .production))])
+                        }.start()
+                    }
                     
                     if case .internal = context.sharedContext.applicationBindings.appBuildType {
-                        context.sharedContext.beginNewAuth(testingEnvironment: false)
+                        beginProductionAuth()
                     } else {
                         #if DEBUG
-                        context.sharedContext.beginNewAuth(testingEnvironment: false)
+                        beginProductionAuth()
                         #endif
                     }
                 }),
