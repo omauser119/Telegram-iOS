@@ -104,6 +104,11 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
     
     private var collectionsDisposable: Disposable?
     private var collections: [StarGiftCollection]?
+    private var flashDisplaySettings: [Int32: FlashGiftCollectionSettings] = [:]
+    private var didChooseFlashCollection = false
+    private let flashDisplayOperation = MetaDisposable()
+    private var flashDisplaySaving = false
+
     private var reorderedCollectionIds: [Int32]?
     private var isReordering = false
     
@@ -159,6 +164,11 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
         self.statusPromise.set(self.giftsListView.status)
         self.ready.set(self.giftsListView.isReady)
         
+        if self.context.account.network.isFlashEnvironment && (self.canManage || self.peerId == self.context.account.peerId) {
+            self.giftsListView.resetFlashFilter = { [weak self] in
+                self?.updateFlashFilter(.All)
+            }
+        }
         self.giftsListView.onContentUpdated = { [weak self] in
             guard let self else {
                 return
@@ -186,6 +196,13 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                 return
             }
             self.collections = state.collections
+            self.flashDisplaySettings = state.displaySettings
+            if self.context.account.network.isFlashEnvironment, !self.didChooseFlashCollection,
+                self.initialGiftCollectionId == nil,
+                let main = state.collections.first(where: { state.displaySettings[$0.id]?.mainTab == true && state.displaySettings[$0.id]?.hidden != true }) {
+                self.didChooseFlashCollection = true
+                self.setCurrentCollection(collection: .collection(main.id))
+            }
             self.updateScrolling(transition: .easeInOut(duration: 0.2))
         })
         
@@ -204,6 +221,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
     }
     
     deinit {
+        self.flashDisplayOperation.dispose()
         self.collectionsDisposable?.dispose()
     }
         
@@ -315,6 +333,37 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
         self.parentController?.present(promptController, in: .window(.root))
     }
     
+    public var flashCollectionFilter: Signal<ProfileGiftsContext.Filters?, NoError> {
+        guard self.context.account.network.isFlashEnvironment, case let .collection(id) = self.currentCollection else { return .single(nil) }
+        return self.profileGiftsCollections.state |> map { state in
+            let mask = state.displaySettings[id]?.filterMask ?? 63
+            // Server: limited=2/upgradable=4; standard iOS filter has these reversed.
+            return ProfileGiftsContext.Filters(flashDisplayMask: mask)
+        }
+    }
+
+    @discardableResult
+    public func updateFlashFilter(_ filter: ProfileGiftsContext.Filters) -> Bool {
+        guard self.context.account.network.isFlashEnvironment, case let .collection(id) = self.currentCollection else { return false }
+        guard self.canManage || self.peerId == self.context.account.peerId else { return true }
+        self.updateFlashDisplay(id: id, filterMask: filter.flashDisplayMask)
+        return true
+    }
+
+    private func updateFlashDisplay(id: Int32, hidden: Bool? = nil, mainTab: Bool? = nil, filterMask: Int32? = nil) {
+        guard self.context.account.network.isFlashEnvironment, self.canManage || self.peerId == self.context.account.peerId else { return }
+        guard !self.flashDisplaySaving else { return }
+        self.flashDisplaySaving = true
+        self.flashDisplayOperation.set(self.profileGiftsCollections.updateDisplaySettings(collectionId: id, hidden: hidden, mainTab: mainTab, filterMask: filterMask).start(error: { [weak self] error in
+            guard let self else { return }
+            self.flashDisplaySaving = false
+            let data = self.context.sharedContext.currentPresentationData.with { $0 }
+            self.parentController?.present(UndoOverlayController(presentationData: data, content: .info(title: "Collection Display", text: "Could not save settings: \(error). Try again.", timeout: nil, customUndoText: nil), elevatedLayout: true, animateInAsReplacement: false, action: { _ in false }), in: .window(.root))
+        }, completed: { [weak self] in
+            self?.flashDisplaySaving = false
+        }))
+    }
+
     public func beginReordering() {
         self.giftsListView.beginReordering()
     }
@@ -410,6 +459,10 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
         guard self.currentCollection != collection else {
             return
         }
+        if self.giftsListView.hasPendingFlashEdits {
+            self.giftsListView.remindToFinishFlashEditing()
+            return
+        }
         var animateRight = false
         if case let .collection(currentId) = self.currentCollection {
             if case let .collection(nextId) = collection {
@@ -441,6 +494,11 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             }
             if case let .collection(id) = collection {
                 self.addGiftsToCollection(id: id)
+            }
+        }
+        if self.context.account.network.isFlashEnvironment && (self.canManage || self.peerId == self.context.account.peerId) {
+            self.giftsListView.resetFlashFilter = { [weak self] in
+                self?.updateFlashFilter(.All)
             }
         }
         self.giftsListView.onContentUpdated = { [weak self] in
@@ -553,6 +611,22 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                 })
             })))
             
+            if self.context.account.network.isFlashEnvironment {
+                let settings = self.flashDisplaySettings[id]
+                items.append(.action(ContextMenuActionItem(text: settings?.mainTab == true ? "Remove as Main Tab" : "Set as Main Tab", icon: { theme in
+                    generateTintedImage(image: UIImage(systemName: "pin"), color: theme.contextMenu.primaryColor)
+                }, action: { [weak self] _, finish in
+                    finish(.default)
+                    self?.updateFlashDisplay(id: id, mainTab: !(settings?.mainTab ?? false))
+                })))
+                items.append(.action(ContextMenuActionItem(text: settings?.hidden == true ? "Show Collection" : "Hide Collection", icon: { theme in
+                    generateTintedImage(image: UIImage(systemName: settings?.hidden == true ? "eye" : "eye.slash"), color: theme.contextMenu.primaryColor)
+                }, action: { [weak self] _, finish in
+                    finish(.default)
+                    self?.updateFlashDisplay(id: id, hidden: !(settings?.hidden ?? false))
+                })))
+            }
+
             items.append(.action(ContextMenuActionItem(text: params.presentationData.strings.PeerInfo_Gifts_DeleteCollection, textColor: .destructive, icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Delete"), color: theme.contextMenu.destructiveColor)
             }, action: { [weak self] _, f in
@@ -616,6 +690,9 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                 }
                 
                 for collection in effectiveCollections {
+                    if self.context.account.network.isFlashEnvironment && !canEditCollections && self.flashDisplaySettings[collection.id]?.hidden == true {
+                        continue
+                    }
                     if !canEditCollections && collection.count == 0 {
                         continue
                     }
@@ -625,7 +702,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                             CollectionTabItemComponent(
                                 context: self.context,
                                 icon: collection.icon.flatMap { .collection($0) },
-                                title: collection.title,
+                                title: self.context.account.network.isFlashEnvironment && self.flashDisplaySettings[collection.id]?.hidden == true ? collection.title + " · Hidden" : collection.title,
                                 theme: params.presentationData.theme
                             )
                         )),
@@ -639,6 +716,12 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                     ))
                 }
                         
+                if self.context.account.network.isFlashEnvironment,
+                    let main = effectiveCollections.first(where: { self.flashDisplaySettings[$0.id]?.mainTab == true && self.flashDisplaySettings[$0.id]?.hidden != true }),
+                    let index = tabSelectorItems.firstIndex(where: { $0.id == AnyHashable(GiftCollection.collection(main.id).rawValue) }) {
+                    let item = tabSelectorItems.remove(at: index)
+                    tabSelectorItems.insert(item, at: 0)
+                }
                 if canEditCollections {
                     tabSelectorItems.append(TabSelectorComponent.Item(
                         id: AnyHashable(GiftCollection.create.rawValue),
@@ -695,6 +778,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                                 return
                             }
                             
+                            self.didChooseFlashCollection = true
                             let giftCollection = GiftCollection(rawValue: idValue)
                             if case .create = giftCollection {
                                 self.createCollection()

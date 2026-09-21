@@ -3493,7 +3493,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
 }
 
 extension ProfileGiftsContext.State.StarGift {
-    init?(apiSavedStarGift: Api.SavedStarGift, peerId: EnginePeer.Id, transaction: Transaction) {
+    init?(apiSavedStarGift: Api.SavedStarGift, peerId: EnginePeer.Id, transaction: Transaction, flashDisplay: Bool = false) {
         switch apiSavedStarGift {
         case let .savedStarGift(savedStarGiftData):
             let (flags, fromId, date, apiGift, message, msgId, savedId, convertStars, upgradeStars, canExportDate, transferStars, canTransferAt, canResaleAt, collectionIds, prepaidUpgradeHash, dropOriginalDetailsStars, number, canCraftAt) = (savedStarGiftData.flags, savedStarGiftData.fromId, savedStarGiftData.date, savedStarGiftData.gift, savedStarGiftData.message, savedStarGiftData.msgId, savedStarGiftData.savedId, savedStarGiftData.convertStars, savedStarGiftData.upgradeStars, savedStarGiftData.canExportAt, savedStarGiftData.transferStars, savedStarGiftData.canTransferAt, savedStarGiftData.canResellAt, savedStarGiftData.collectionId, savedStarGiftData.prepaidUpgradeHash, savedStarGiftData.dropOriginalDetailsStars, savedStarGiftData.giftNum, savedStarGiftData.canCraftAt)
@@ -3520,18 +3520,30 @@ extension ProfileGiftsContext.State.StarGift {
                 self.text = nil
                 self.entities = nil
             }
-            if let savedId {
-                self.reference = .peer(peerId: peerId, id: savedId)
-            } else if let msgId {
-                if let fromPeer = self.fromPeer {
-                    self.reference = .message(messageId: EngineMessage.Id(peerId: fromPeer.id, namespace: Namespaces.Message.Cloud, id: msgId))
-                } else if case .unique = gift {
-                    self.reference = .message(messageId: EngineMessage.Id(peerId: PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(0)), namespace: Namespaces.Message.Cloud, id: msgId))
+            if flashDisplay {
+                if peerId.namespace == Namespaces.Peer.CloudChannel, let savedId {
+                    self.reference = .peer(peerId: peerId, id: savedId)
+                } else if peerId.namespace == Namespaces.Peer.CloudUser, let msgId {
+                    // Anonymous senders still have a public saved-gift message id.
+                    let senderId = self.fromPeer?.id ?? PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(0))
+                    self.reference = .message(messageId: EngineMessage.Id(peerId: senderId, namespace: Namespaces.Message.Cloud, id: msgId))
                 } else {
                     self.reference = nil
                 }
             } else {
-                self.reference = nil
+                if let savedId {
+                    self.reference = .peer(peerId: peerId, id: savedId)
+                } else if let msgId {
+                    if let fromPeer = self.fromPeer {
+                        self.reference = .message(messageId: EngineMessage.Id(peerId: fromPeer.id, namespace: Namespaces.Message.Cloud, id: msgId))
+                    } else if case .unique = gift {
+                        self.reference = .message(messageId: EngineMessage.Id(peerId: PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(0)), namespace: Namespaces.Message.Cloud, id: msgId))
+                    } else {
+                        self.reference = nil
+                    }
+                } else {
+                    self.reference = nil
+                }
             }
             self.nameHidden = (flags & (1 << 0)) != 0
             self.savedToProfile = (flags & (1 << 5)) == 0

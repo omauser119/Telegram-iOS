@@ -38,6 +38,21 @@ final class GiftsListView: UIView {
     private let remainingSelectionCount: Int32
     
     private var dataDisposable: Disposable?
+    private let flashOperation = MetaDisposable()
+    private let flashGiftsPromise = ValuePromise<[ProfileGiftsContext.State.StarGift]?>(nil)
+    private var flashGifts: [ProfileGiftsContext.State.StarGift]?
+    private var flashSettings: FlashGiftCollectionSettings?
+    private var flashSizes: [Int64: Int32] = [:]
+    private var flashObservedPageIds = Set<Int64>()
+    private var flashObservedCount: Int32?
+    private var flashPreparing = false
+    private var flashWantsEditing = false
+    private var flashSaving = false
+    private var flashResizeButtons: [AnyHashable: FlashGiftResizeButton] = [:]
+    private var usesFlashDisplay: Bool {
+        return self.context.account.network.isFlashEnvironment && self.isCollection && !self.canSelect
+    }
+
         
     weak var parentController: ViewController?
         
@@ -125,6 +140,7 @@ final class GiftsListView: UIView {
     
     var contextAction: ((ProfileGiftsContext.State.StarGift, UIView, ContextGesture) -> Void)?
     var addToCollection: (() -> Void)?
+    var resetFlashFilter: (() -> Void)?
     
     init(context: AccountContext, peerId: EnginePeer.Id, profileGifts: ProfileGiftsContext, giftsCollections: ProfileGiftsCollectionsContext?, canSelect: Bool, ignoreCollection: Int32? = nil, remainingSelectionCount: Int32 = 0) {
         self.context = context
@@ -143,11 +159,19 @@ final class GiftsListView: UIView {
         
         super.init(frame: .zero)
                                         
+        let flashSettingsSignal: Signal<FlashGiftCollectionSettings?, NoError>
+        if self.usesFlashDisplay, let giftsCollections, let collectionId = profileGifts.collectionId {
+            flashSettingsSignal = giftsCollections.state |> map { $0.displaySettings[collectionId] }
+        } else {
+            flashSettingsSignal = .single(nil)
+        }
         self.dataDisposable = combineLatest(
             queue: Queue.mainQueue(),
             profileGifts.state,
-            self.reorderedReferencesPromise.get()
-        ).startStrict(next: { [weak self] state, reorderedReferences in
+            self.reorderedReferencesPromise.get(),
+            flashSettingsSignal,
+            self.flashGiftsPromise.get()
+        ).startStrict(next: { [weak self] state, reorderedReferences, flashSettings, flashGifts in
             guard let self else {
                 return
             }
@@ -155,8 +179,20 @@ final class GiftsListView: UIView {
             let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
             self.statusPromise.set(.single(PeerInfoStatusData(text: presentationData.strings.SharedMedia_GiftCount(state.count ?? 0), isActivity: true, key: .gifts)))
             
+            self.flashSettings = flashSettings
+            self.flashGifts = flashGifts
+            var sourceItems = self.usesFlashDisplay ? (flashGifts ?? state.gifts) : state.gifts
+            if self.usesFlashDisplay, let flashSettings {
+                var order: [Int64: Int32] = [:]
+                for item in flashSettings.items { order[item.giftId] = item.order }
+                sourceItems = sourceItems.enumerated().sorted { lhs, rhs in
+                    let a = lhs.element.reference?.flashDisplayGiftId(peerId: self.peerId).flatMap { order[$0] } ?? Int32.max
+                    let b = rhs.element.reference?.flashDisplayGiftId(peerId: self.peerId).flatMap { order[$0] } ?? Int32.max
+                    return a == b ? lhs.offset < rhs.offset : a < b
+                }.map { $0.element }
+            }
             if self.isReordering {
-                var stateItems: [ProfileGiftsContext.State.StarGift] = state.gifts
+                var stateItems: [ProfileGiftsContext.State.StarGift] = sourceItems
                 if let reorderedReferences {
                     var fixedStateItems: [ProfileGiftsContext.State.StarGift] = []
                     
@@ -186,13 +222,34 @@ final class GiftsListView: UIView {
                 self.starsProducts = stateItems
                 self.pinnedReferences = Array(stateItems.filter { $0.pinnedToTop }.compactMap { $0.reference })
             } else {
-                self.starsProducts = state.filteredGifts
+                if self.usesFlashDisplay {
+                    if !self.flashSaving {
+                        self.flashSizes = [:]
+                        for item in flashSettings?.items ?? [] { self.flashSizes[item.giftId] = item.size }
+                    }
+                    self.starsProducts = sourceItems.filter { self.matchesFlashFilter($0, mask: flashSettings?.filterMask ?? 63) }
+                } else {
+                    self.starsProducts = state.filteredGifts
+                }
                 self.pinnedReferences = Array(state.gifts.filter { $0.pinnedToTop }.compactMap { $0.reference })
             }
             
             self.resultsAreEmpty = state.filter == .All && state.gifts.isEmpty && state.dataState != .loading
-            self.filteredResultsAreEmpty = state.filter != .All && state.filteredGifts.isEmpty
+            self.filteredResultsAreEmpty = self.usesFlashDisplay ? (!sourceItems.isEmpty && self.starsProducts?.isEmpty == true) : (state.filter != .All && state.filteredGifts.isEmpty)
         
+            if self.usesFlashDisplay {
+                let pageIds = Set(state.gifts.compactMap { $0.reference?.flashDisplayGiftId(peerId: self.peerId) })
+                let sourceChanged = self.flashObservedCount != state.count || self.flashObservedPageIds != pageIds
+                self.flashObservedPageIds = pageIds
+                self.flashObservedCount = state.count
+                if sourceChanged, let flashGifts, !self.isReordering, !self.flashSaving, !self.flashPreparing,
+                    case .ready = state.dataState {
+                    let completeIds = Set(flashGifts.compactMap { $0.reference?.flashDisplayGiftId(peerId: self.peerId) })
+                    if (state.count != nil && state.count != Int32(flashGifts.count)) || !pageIds.isSubset(of: completeIds) {
+                        Queue.mainQueue().justDispatch { [weak self] in self?.loadFlashGifts(beginEditing: false) }
+                    }
+                }
+            }
             if !self.didSetReady {
                 self.didSetReady = true
                 self.ready.set(.single(true))
@@ -214,7 +271,10 @@ final class GiftsListView: UIView {
                 guard let self, let (id, item) = self.item(at: point) else {
                     return (allowed: false, requiresLongPress: false, id: nil, item: nil)
                 }
-                return (allowed: true, requiresLongPress: false, id: id, item: item)
+                if self.flashResizeButtons.values.contains(where: { $0.frame.contains(point) }) {
+                    return (allowed: false, requiresLongPress: false, id: nil, item: nil)
+                }
+                return (allowed: true, requiresLongPress: self.usesFlashDisplay, id: id, item: item)
             },
             willBegin: { point in
             },
@@ -242,6 +302,8 @@ final class GiftsListView: UIView {
         self.reorderRecognizer = reorderRecognizer
         self.addGestureRecognizer(reorderRecognizer)
         reorderRecognizer.isEnabled = false
+        if self.usesFlashDisplay { self.loadFlashGifts(beginEditing: false) }
+
     }
     
     required init?(coder: NSCoder) {
@@ -250,6 +312,7 @@ final class GiftsListView: UIView {
     
     deinit {
         self.dataDisposable?.dispose()
+        self.flashOperation.dispose()
     }
         
     func item(at point: CGPoint) -> (AnyHashable, ComponentView<Empty>)? {
@@ -261,7 +324,23 @@ final class GiftsListView: UIView {
         return nil
     }
         
+    var hasPendingFlashEdits: Bool {
+        return self.usesFlashDisplay && (self.isReordering || self.flashSaving || self.flashWantsEditing)
+    }
+
+    func remindToFinishFlashEditing() {
+        self.flashError(self.flashSaving ? "Please wait until the collection is saved." : "Tap Done to save your collection before switching tabs.")
+    }
+
     func beginReordering() {
+        if self.usesFlashDisplay {
+            self.loadFlashGifts(beginEditing: true)
+            return
+        }
+        self.beginLoadedReordering()
+    }
+
+    private func beginLoadedReordering() {
         self.profileGifts.updateFilter(.All)
         self.profileGifts.updateSorting(.date)
         
@@ -281,12 +360,19 @@ final class GiftsListView: UIView {
     }
     
     func updateIsReordering(isReordering: Bool, animated: Bool) {
+        if self.usesFlashDisplay && isReordering && (self.flashGifts == nil || self.flashSaving) { return }
         if self.isReordering != isReordering {
             self.isReordering = isReordering
             
             self.reorderRecognizer?.isEnabled = isReordering
+            if isReordering && self.usesFlashDisplay {
+                let existingReferences = self.reorderedReferences
+                self.reorderedReferences = existingReferences
+            }
             
-            if !isReordering, let _ = self.reorderedReferences, let starsProducts = self.starsProducts {
+            if !isReordering, self.usesFlashDisplay {
+                self.saveFlashDisplayItems()
+            } else if !isReordering, let _ = self.reorderedReferences, let starsProducts = self.starsProducts {
                 if let collectionId = self.profileGifts.collectionId {
                     var orderedReferences: [StarGiftReference] = []
                     for gift in starsProducts {
@@ -398,6 +484,86 @@ final class GiftsListView: UIView {
         }
     }
                     
+    private func matchesFlashFilter(_ gift: ProfileGiftsContext.State.StarGift, mask: Int32) -> Bool {
+        let visibility: Int32 = gift.savedToProfile ? 16 : 32
+        guard mask & visibility != 0 else { return false }
+        switch gift.gift {
+        case .unique: return mask & 8 != 0
+        case let .generic(value):
+            if value.availability == nil { return mask & 1 != 0 }
+            return mask & (gift.canUpgrade ? 4 : 2) != 0
+        }
+    }
+
+    private func flashError(_ message: String) {
+        let data = self.context.sharedContext.currentPresentationData.with { $0 }
+        self.parentController?.present(UndoOverlayController(presentationData: data, content: .info(title: "Collection Display", text: message, timeout: nil, customUndoText: nil), elevatedLayout: true, animateInAsReplacement: false, action: { _ in false }), in: .window(.root))
+    }
+
+    private func loadFlashGifts(beginEditing: Bool) {
+        if beginEditing { self.flashWantsEditing = true }
+        guard !self.flashPreparing, !self.flashSaving, let collectionId = self.profileGifts.collectionId, let collections = self.giftsCollections else { return }
+        self.flashPreparing = true
+        self.statusPromise.set(.single(PeerInfoStatusData(text: "Loading collection…", isActivity: true, key: .gifts)))
+        self.flashOperation.set(collections.loadAllDisplayGifts(collectionId: collectionId).start(next: { [weak self] gifts in
+            guard let self else { return }
+            self.flashPreparing = false
+            self.flashGifts = gifts
+            self.flashGiftsPromise.set(gifts)
+            if self.flashWantsEditing {
+                self.flashWantsEditing = false
+                self.beginLoadedReordering()
+                // Re-emit after switching mode so all (including filtered) gifts are editable.
+                self.reorderedReferences = self.starsProducts?.compactMap { $0.reference }
+            }
+        }, error: { [weak self] error in
+            self?.flashPreparing = false
+            self?.flashWantsEditing = false
+            self?.flashError("Could not load the complete collection: \(error). Try again.")
+        }))
+    }
+
+    private func toggleFlashSize(_ gift: ProfileGiftsContext.State.StarGift) {
+        guard !self.flashSaving, let id = gift.reference?.flashDisplayGiftId(peerId: self.peerId) else { return }
+        self.setFlashSize(gift, expanded: self.flashSizes[id] != 1)
+    }
+
+    private func setFlashSize(_ gift: ProfileGiftsContext.State.StarGift, expanded: Bool) {
+        guard !self.flashSaving, let id = gift.reference?.flashDisplayGiftId(peerId: self.peerId) else { return }
+        let size: Int32 = expanded ? 1 : 0
+        guard (self.flashSizes[id] ?? 0) != size else { return }
+        self.flashSizes[id] = size
+        HapticFeedback().tap()
+        self.updateScrolling(transition: .spring(duration: 0.35))
+        self.onContentUpdated()
+    }
+
+    private func saveFlashDisplayItems() {
+        guard !self.flashSaving, let collectionId = self.profileGifts.collectionId,
+            let collections = self.giftsCollections, let products = self.starsProducts, let allGifts = self.flashGifts else { return }
+        let items = products.enumerated().compactMap { index, gift -> FlashGiftCollectionDisplayItem? in
+            guard let id = gift.reference?.flashDisplayGiftId(peerId: self.peerId) else { return nil }
+            return FlashGiftCollectionDisplayItem(giftId: id, order: Int32(index), size: self.flashSizes[id] ?? 0)
+        }
+        guard items.count == allGifts.count else {
+            self.flashError("The collection is incomplete. Reload it before saving.")
+            return
+        }
+        self.flashSaving = true
+        self.statusPromise.set(.single(PeerInfoStatusData(text: "Saving collection…", isActivity: true, key: .gifts)))
+        self.flashOperation.set(collections.updateDisplaySettings(collectionId: collectionId, items: items).start(next: { [weak self] _ in
+            guard let self else { return }
+            self.flashSaving = false
+            self.reorderedReferences = nil
+            self.loadFlashGifts(beginEditing: false)
+        }, error: { [weak self] error in
+            guard let self else { return }
+            self.flashSaving = false
+            self.beginLoadedReordering()
+            self.flashError("Could not save collection display: \(error). Your edits are kept; tap Done to retry.")
+        }))
+    }
+
     func loadMore() {
         self.profileGifts.loadMore()
     }
@@ -444,11 +610,18 @@ final class GiftsListView: UIView {
         
         let starsOptionSize = CGSize(width: optionWidth, height: defaultOptionWidth)
                     
+        let flashFrames: [CGRect]? = self.usesFlashDisplay ? flashGiftMosaicFrames(
+            expanded: starsProducts.map { gift in
+                gift.reference?.flashDisplayGiftId(peerId: self.peerId).flatMap { self.flashSizes[$0] } == 1
+            }, width: params.size.width - itemsSideInset * 2.0, columns: defaultItemsInRow, spacing: optionSpacing,
+            origin: CGPoint(x: itemsSideInset, y: topInset)
+        ) : nil
         var validIds: [AnyHashable] = []
         var itemFrame = CGRect(origin: CGPoint(x: itemsSideInset, y: topInset), size: starsOptionSize)
         
         var index: Int32 = 0
         for product in starsProducts {
+            if let flashFrames { itemFrame = flashFrames[Int(index)] }
             var isVisible = false
             if visibleBounds.intersects(itemFrame) {
                 isVisible = true
@@ -563,6 +736,10 @@ final class GiftsListView: UIView {
                                     self.selectionUpdated()
                                     self.updateScrolling(transition: .easeInOut(duration: 0.25))
                                 } else if self.isReordering {
+                                    if self.usesFlashDisplay {
+                                        self.toggleFlashSize(product)
+                                        return
+                                    }
                                     if case .unique = product.gift, !product.pinnedToTop, let reference = product.reference, let items = self.starsProducts {
                                         if self.pinnedReferences.count >= self.maxPinnedCount {
                                             self.parentController?.present(UndoOverlayController(presentationData: presentationData, content: .info(title: nil, text: presentationData.strings.PeerInfo_Gifts_ToastPinLimit_Text(Int32(self.maxPinnedCount)), timeout: nil, customUndoText: nil), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
@@ -695,7 +872,7 @@ final class GiftsListView: UIView {
                         )
                     ),
                     environment: {},
-                    containerSize: starsOptionSize
+                    containerSize: itemFrame.size
                 )
                 if let itemView = visibleItem.view {
                     if itemView.superview == nil {
@@ -717,6 +894,21 @@ final class GiftsListView: UIView {
                         itemTransition.setFrame(view: itemView, frame: itemFrame)
                     }
                     
+                    if self.usesFlashDisplay && self.isReordering {
+                        let button: FlashGiftResizeButton
+                        if let current = self.flashResizeButtons[itemId] { button = current } else {
+                            button = FlashGiftResizeButton()
+                            self.flashResizeButtons[itemId] = button
+                            self.addSubview(button)
+                        }
+                        let large = product.reference?.flashDisplayGiftId(peerId: self.peerId).flatMap { self.flashSizes[$0] } == 1
+                        button.setImage(UIImage(systemName: large ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"), for: .normal)
+                        button.accessibilityLabel = large ? "Make gift compact" : "Expand gift"
+                        button.action = { [weak self] in self?.toggleFlashSize(product) }
+                        button.resizeAction = { [weak self] expanded in self?.setFlashSize(product, expanded: expanded) }
+                        itemTransition.setFrame(view: button, frame: CGRect(x: itemFrame.maxX - 32.0, y: itemFrame.maxY - 32.0, width: 30.0, height: 30.0))
+                        self.bringSubviewToFront(button)
+                    }
                     itemTransition.setAlpha(view: itemView, alpha: itemAlpha)
                     if itemAlpha < 1.0 {
                         itemView.layer.allowsGroupOpacity = true
@@ -762,8 +954,14 @@ final class GiftsListView: UIView {
             self.starsItems.removeValue(forKey: id)
         }
         
+        for id in Array(self.flashResizeButtons.keys) {
+            if !self.isReordering || !validIds.contains(id) {
+                self.flashResizeButtons.removeValue(forKey: id)?.removeFromSuperview()
+            }
+        }
         var contentHeight = ceil(CGFloat(starsProducts.count) / CGFloat(defaultItemsInRow)) * (starsOptionSize.height + optionSpacing) - optionSpacing + topInset + 16.0
         
+        if let flashFrames { contentHeight = (flashFrames.map { $0.maxY }.max() ?? topInset) + 16.0 }
         let size = params.size
         let sideInset = params.sideInset
         let bottomInset = params.bottomInset
@@ -870,6 +1068,7 @@ final class GiftsListView: UIView {
                 panelTransition.setPosition(view: view, position: emptyResultsTextFrame.center)
             }
             if let view = self.emptyResultsAction.view {
+                view.isHidden = false
                 if view.superview == nil {
                     view.alpha = 0.0
                     fadeTransition.setAlpha(view: view, alpha: 1.0)
@@ -918,7 +1117,11 @@ final class GiftsListView: UIView {
                             guard let self else {
                                 return
                             }
-                            self.profileGifts.updateFilter(.All)
+                            if self.usesFlashDisplay {
+                                self.resetFlashFilter?()
+                            } else {
+                                self.profileGifts.updateFilter(.All)
+                            }
                         },
                         animateScale: false
                     )
@@ -964,6 +1167,7 @@ final class GiftsListView: UIView {
                 panelTransition.setPosition(view: view, position: emptyResultsTitleFrame.center)
             }
             if let view = self.emptyResultsAction.view {
+                view.isHidden = self.usesFlashDisplay && self.resetFlashFilter == nil
                 if view.superview == nil {
                     view.alpha = 0.0
                     fadeTransition.setAlpha(view: view, alpha: 1.0)
@@ -1253,6 +1457,33 @@ private final class ReorderGestureRecognizer: UIGestureRecognizer {
                 self.initialLocation = nil
                 self.isActiveUpdated(false)
                 self.state = .failed
+            }
+        }
+    }
+}
+
+private final class FlashGiftResizeButton: UIButton {
+    var action: (() -> Void)?
+    var resizeAction: ((Bool) -> Void)?
+    private var resizedInGesture = false
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        self.backgroundColor = UIColor.white.withAlphaComponent(0.9)
+        self.tintColor = .black
+        self.layer.cornerRadius = 15.0
+        self.addTarget(self, action: #selector(pressed), for: .touchUpInside)
+        self.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(resizeGesture(_:))))
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func pressed() { self.action?() }
+    @objc private func resizeGesture(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .began { self.resizedInGesture = false }
+        if gesture.state == .changed, !self.resizedInGesture {
+            let translation = gesture.translation(in: self.superview)
+            let delta = translation.x + translation.y
+            if abs(delta) > 20.0 {
+                self.resizedInGesture = true
+                self.resizeAction?(delta > 0.0)
             }
         }
     }

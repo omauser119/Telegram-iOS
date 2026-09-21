@@ -294,6 +294,7 @@ public final class ProfileGiftsCollectionsContext {
     public struct State: Equatable {
         public var collections: [StarGiftCollection]
         public var isLoading: Bool
+        public var displaySettings: [Int32: FlashGiftCollectionSettings]
     }
     
     public enum UpdateAction {
@@ -310,6 +311,11 @@ public final class ProfileGiftsCollectionsContext {
     
     private let disposable = MetaDisposable()
     
+    private var displaySettings: [Int32: FlashGiftCollectionSettings] = [:]
+    private var displayHash: Int64 = 0
+    private let displayDisposable = MetaDisposable()
+    private var displayUpdating = false
+    private var displayUpdateToken: Int = 0
     private var collections: [StarGiftCollection] = []
     private var giftsContexts: [Int32: ProfileGiftsContext] = [:]
     private var isLoading: Bool = false
@@ -329,6 +335,7 @@ public final class ProfileGiftsCollectionsContext {
     
     deinit {
         self.disposable.dispose()
+        self.displayDisposable.dispose()
     }
     
     public func giftsContextForCollection(id: Int32) -> ProfileGiftsContext {
@@ -356,6 +363,9 @@ public final class ProfileGiftsCollectionsContext {
             self.isLoading = false
             self.pushState()
             self.updateCache()
+            if self.account.network.isFlashEnvironment {
+                self.displayDisposable.set(self.refreshDisplaySettings().start(error: { _ in }))
+            }
         }))
     }
     
@@ -459,8 +469,189 @@ public final class ProfileGiftsCollectionsContext {
     private func pushState() {
         let state = State(
             collections: self.collections,
-            isLoading: self.isLoading
+            isLoading: self.isLoading,
+            displaySettings: self.displaySettings
         )
         self.stateValue.set(.single(state))
     }
+}
+
+public typealias FlashGiftCollectionSettings = FlashGiftCollections.Settings
+public typealias FlashGiftCollectionDisplayItem = FlashGiftCollections.Item
+
+public enum FlashGiftCollectionError: Error {
+    case unavailable
+    case busy
+    case invalidItems
+    case invalidResponse
+    case rpc(String)
+}
+
+public extension StarGiftReference {
+    // Public instance identifiers, never StarGift.id / uniqueGift.id.
+    func flashDisplayGiftId(peerId: EnginePeer.Id) -> Int64? {
+        switch self {
+        case let .message(messageId) where peerId.namespace == Namespaces.Peer.CloudUser:
+            return Int64(messageId.id)
+        case let .peer(ownerId, id) where ownerId == peerId && peerId.namespace == Namespaces.Peer.CloudChannel:
+            return id
+        default: return nil
+        }
+    }
+}
+
+public extension ProfileGiftsCollectionsContext {
+    var supportsDisplaySettings: Bool { self.account.network.isFlashEnvironment }
+
+    private func displayInputPeer() -> Signal<Api.InputPeer, FlashGiftCollectionError> {
+        guard self.supportsDisplaySettings else { return .fail(.unavailable) }
+        let account = self.account
+        let peerId = self.peerId
+        return account.postbox.transaction { transaction -> Api.InputPeer? in
+            if peerId == account.peerId { return .inputPeerSelf }
+            return transaction.getPeer(peerId).flatMap(apiInputPeer)
+        }
+        |> castError(FlashGiftCollectionError.self)
+        |> deliverOnMainQueue
+        |> mapToSignal { peer in
+            guard let peer else { return .fail(.unavailable) }
+            return .single(peer)
+        }
+    }
+
+    func refreshDisplaySettings() -> Signal<Bool, FlashGiftCollectionError> {
+        guard self.supportsDisplaySettings else { return .fail(.unavailable) }
+        return self.displayInputPeer()
+        |> mapToSignal { [weak self] peer -> Signal<FlashGiftCollections.Result, FlashGiftCollectionError> in
+            guard let self else { return .fail(.unavailable) }
+            return self.account.network.request(FlashGiftCollections.get(peer: peer, hash: self.displayHash), automaticFloodWait: false)
+            |> mapError { .rpc($0.errorDescription ?? "RPC error") }
+        }
+        |> deliverOnMainQueue
+        |> map { [weak self] response in
+            guard let self else { return false }
+            if case let .settings(settings, hash) = response {
+                var result: [Int32: FlashGiftCollectionSettings] = [:]
+                for value in settings { result[value.collectionId] = value }
+                self.displaySettings = result
+                self.displayHash = hash // Opaque Int64; do not recompute from settings.
+                self.pushState()
+            }
+            return true
+        }
+    }
+
+    // Independent, unfiltered pagination: a visible page is never a complete edit list.
+    func loadAllDisplayGifts(collectionId: Int32) -> Signal<[ProfileGiftsContext.State.StarGift], FlashGiftCollectionError> {
+        let account = self.account
+        let peerId = self.peerId
+        return self.displayInputPeer()
+        |> mapToSignal { peer in
+            func page(_ offset: String, _ seen: Set<String>, _ accumulated: [ProfileGiftsContext.State.StarGift], expectedCount: Int32? = nil) -> Signal<[ProfileGiftsContext.State.StarGift], FlashGiftCollectionError> {
+                return account.network.request(Api.functions.payments.getSavedStarGifts(flags: 1 << 6, peer: peer, collectionId: collectionId, offset: offset, limit: 100), automaticFloodWait: false)
+                |> mapError { FlashGiftCollectionError.rpc($0.errorDescription ?? "RPC error") }
+                |> mapToSignal { response in
+                    return account.postbox.transaction { transaction -> ([ProfileGiftsContext.State.StarGift], String?, Bool, Int32) in
+                        switch response {
+                        case let .savedStarGifts(value):
+                            updatePeers(transaction: transaction, accountPeerId: account.peerId, peers: AccumulatedPeers(transaction: transaction, chats: value.chats, users: value.users))
+                            let gifts = value.gifts.compactMap { ProfileGiftsContext.State.StarGift(apiSavedStarGift: $0, peerId: peerId, transaction: transaction, flashDisplay: true) }
+                            return (gifts, value.nextOffset, gifts.count == value.gifts.count, value.count)
+                        }
+                    }
+                    |> castError(FlashGiftCollectionError.self)
+                }
+                |> mapToSignal { gifts, nextOffset, valid, count in
+                    guard valid, count >= 0, expectedCount == nil || expectedCount == count else { return .fail(.invalidResponse) }
+                    let all = accumulated + gifts
+                    let ids = all.compactMap { $0.reference?.flashDisplayGiftId(peerId: peerId) }
+                    guard ids.count == all.count, Set(ids).count == ids.count else { return .fail(.invalidResponse) }
+                    if let nextOffset, !nextOffset.isEmpty {
+                        guard nextOffset != offset, !seen.contains(nextOffset) else { return .fail(.invalidResponse) }
+                        return page(nextOffset, seen.union([offset]), all, expectedCount: count)
+                    }
+                    guard all.count == Int(count) else { return .fail(.invalidResponse) }
+                    return .single(all)
+                }
+            }
+            return page("", [], [])
+        }
+        |> deliverOnMainQueue
+    }
+
+    func updateDisplaySettings(collectionId: Int32, hidden: Bool? = nil, mainTab: Bool? = nil, filterMask: Int32? = nil, items: [FlashGiftCollectionDisplayItem]? = nil) -> Signal<Bool, FlashGiftCollectionError> {
+        guard self.supportsDisplaySettings else { return .fail(.unavailable) }
+        if let filterMask, filterMask < 0 || filterMask & ~63 != 0 { return .fail(.invalidItems) }
+        if let items {
+            guard FlashGiftCollections.areValidItems(items) else { return .fail(.invalidItems) }
+        }
+        return Signal { subscriber in
+            guard !self.displayUpdating else {
+                subscriber.putError(.busy)
+                return EmptyDisposable
+            }
+            self.displayUpdating = true
+            self.displayUpdateToken += 1
+            let updateToken = self.displayUpdateToken
+            self.displayDisposable.set(nil)
+            let validation: Signal<Bool, FlashGiftCollectionError>
+            if let items {
+                validation = self.loadAllDisplayGifts(collectionId: collectionId)
+                |> mapToSignal { gifts in
+                    let ids = Set(gifts.compactMap { $0.reference?.flashDisplayGiftId(peerId: self.peerId) })
+                    guard ids == Set(items.map { $0.giftId }) else { return .fail(.invalidItems) }
+                    return .single(true)
+                }
+            } else { validation = .single(true) }
+            let disposable = (validation
+            |> mapToSignal { _ in self.displayInputPeer() }
+            |> mapToSignal { peer in
+                self.account.network.request(FlashGiftCollections.update(peer: peer, collectionId: collectionId, hidden: hidden, mainTab: mainTab, filterMask: filterMask, items: items), automaticFloodWait: false)
+                |> mapError { FlashGiftCollectionError.rpc($0.errorDescription ?? "RPC error") }
+            }
+            |> deliverOnMainQueue
+            |> mapToSignal { result -> Signal<Bool, FlashGiftCollectionError> in
+                guard result.collectionId == collectionId else { return .fail(.invalidResponse) }
+                self.displaySettings[collectionId] = result
+                self.pushState()
+                return self.account.postbox.transaction { transaction -> Bool in
+                    if items != nil {
+                        transaction.removeItemCacheEntry(id: entryId(peerId: self.peerId))
+                        transaction.removeItemCacheEntry(id: giftsEntryId(peerId: self.peerId, collectionId: collectionId))
+                    }
+                    return true
+                }
+                |> castError(FlashGiftCollectionError.self)
+                |> mapToSignal { _ in self.refreshDisplaySettings() }
+            }
+            |> deliverOnMainQueue).start(next: { result in
+                if items != nil {
+                    self.giftsContexts[collectionId]?.reload()
+                    self.disposable.set(nil)
+                    self.isLoading = false
+                    self.reload()
+                }
+                subscriber.putNext(result)
+            }, error: { error in
+                self.displayUpdating = false
+                subscriber.putError(error)
+            }, completed: {
+                self.displayUpdating = false
+                subscriber.putCompletion()
+            })
+            return ActionDisposable {
+                disposable.dispose()
+                Queue.mainQueue().async {
+                    if self.displayUpdateToken == updateToken { self.displayUpdating = false }
+                }
+            }
+        }
+    }
+}
+
+public extension ProfileGiftsContext.Filters {
+    init(flashDisplayMask: Int32) {
+        self.init(rawValue: FlashGiftCollections.convertFilterMask(flashDisplayMask))
+    }
+    var flashDisplayMask: Int32 { FlashGiftCollections.convertFilterMask(self.rawValue) }
 }

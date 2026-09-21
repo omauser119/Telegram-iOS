@@ -32,10 +32,11 @@ extension PeerInfoScreenNode {
         }
         
         let isCollection = giftsContext.collectionId != nil
+        let isFlashCollection = self.context.account.network.isFlashEnvironment && isCollection
             
         let strings = self.presentationData.strings
-        let items: Signal<ContextController.Items, NoError> = giftsContext.state
-        |> map { state in
+        let items: Signal<ContextController.Items, NoError> = combineLatest(giftsContext.state, pane.flashCollectionFilter)
+        |> map { state, flashFilter in
             var hasPinnedGifts = false
             for gift in state.gifts {
                 if gift.pinnedToTop {
@@ -43,7 +44,7 @@ extension PeerInfoScreenNode {
                     break
                 }
             }
-            return (state.filter, state.sorting, hasPinnedGifts || isCollection)
+            return (flashFilter ?? state.filter, state.sorting, hasPinnedGifts || isCollection)
         }
         |> distinctUntilChanged(isEqual: { lhs, rhs -> Bool in
             let filterEquals = lhs.0 == rhs.0
@@ -132,7 +133,10 @@ extension PeerInfoScreenNode {
                 items.append(.separator)
             }
             
-            let toggleFilter: (ProfileGiftsContext.Filters) -> Void = { [weak giftsContext] value in
+            if isFlashCollection && !hasVisibility {
+                return ContextController.Items(content: .list(items))
+            }
+            let toggleFilter: (ProfileGiftsContext.Filters) -> Void = { [weak pane, weak giftsContext] value in
                 var updatedFilter = filter
                 if updatedFilter.contains(value) {
                     updatedFilter.remove(value)
@@ -149,25 +153,31 @@ extension PeerInfoScreenNode {
                         updatedFilter.insert(.displayed)
                     }
                 }
-                giftsContext?.updateFilter(updatedFilter)
+                if pane?.updateFlashFilter(updatedFilter) != true {
+                    giftsContext?.updateFilter(updatedFilter)
+                }
             }
             
-            let switchToFilter: (ProfileGiftsContext.Filters) -> Void = { [weak giftsContext] value in
+            let switchToFilter: (ProfileGiftsContext.Filters) -> Void = { [weak pane, weak giftsContext] value in
                 var updatedFilter = filter
                 updatedFilter.remove(.unlimited)
                 updatedFilter.remove(.limitedUpgradable)
                 updatedFilter.remove(.limitedNonUpgradable)
                 updatedFilter.remove(.unique)
                 updatedFilter.insert(value)
-                giftsContext?.updateFilter(updatedFilter)
+                if pane?.updateFlashFilter(updatedFilter) != true {
+                    giftsContext?.updateFilter(updatedFilter)
+                }
             }
             
-            let switchToVisiblityFilter: (ProfileGiftsContext.Filters) -> Void = { [weak giftsContext] value in
+            let switchToVisiblityFilter: (ProfileGiftsContext.Filters) -> Void = { [weak pane, weak giftsContext] value in
                 var updatedFilter = filter
                 updatedFilter.remove(.hidden)
                 updatedFilter.remove(.displayed)
                 updatedFilter.insert(value)
-                giftsContext?.updateFilter(updatedFilter)
+                if pane?.updateFlashFilter(updatedFilter) != true {
+                    giftsContext?.updateFilter(updatedFilter)
+                }
             }
             
             items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Unlimited, icon: { theme in
