@@ -36,6 +36,12 @@ jobs:
           git -C "$engine" fetch --no-tags --depth 1 https://github.com/omauser119/tgcalls-rs.git "$(cat build-system/tgcalls-rust-revision)"
           git -C "$engine" checkout --detach FETCH_HEAD
           bash build-system/prepare-tgcalls-rust.sh "$engine"
+      - name: Enable unsigned device packaging
+        run: |
+          rules=build-system/bazel-rules/rules_apple
+          patch="$GITHUB_WORKSPACE/build-system/bazel-rules/patches/unsigned-ios-device.patch"
+          git -C "$rules" apply --check "$patch"
+          git -C "$rules" apply "$patch"
       - name: Build unsigned iOS arm64 app
         run: |
           python3 -u build-system/Make/Make.py --overrideXcodeVersion \
