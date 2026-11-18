@@ -452,6 +452,18 @@ public final class OngoingGroupCallContext {
             self.mirrorHorizontally = frameData.mirrorHorizontally
             self.mirrorVertically = frameData.mirrorVertically
         }
+
+#if os(iOS) && TGCALLS_RUST
+        init(pixelBuffer: CVPixelBuffer) {
+            buffer = .native(NativeBuffer(pixelBuffer: pixelBuffer))
+            width = CVPixelBufferGetWidth(pixelBuffer)
+            height = CVPixelBufferGetHeight(pixelBuffer)
+            orientation = .rotation0
+            deviceRelativeOrientation = nil
+            mirrorHorizontally = false
+            mirrorVertically = false
+        }
+#endif
     }
 
     public struct Stats {
@@ -483,6 +495,7 @@ public final class OngoingGroupCallContext {
 #endif
 #if os(iOS) && TGCALLS_RUST
         private var rustRequested = false
+        private let rustHardened = RustCallMedia.hardenedByDefault
         private var rustMedia: RustCallMedia?
         private var rustAudioActive = false
         private var rustMuted = true
@@ -490,6 +503,16 @@ public final class OngoingGroupCallContext {
         private var rustRejoin: (() -> Void)?
         private var rustSources: Set<UInt32> = []
         private var rustTransportReady = false
+        private var rustBroadcast: RustBroadcastAudio?
+        private var rustExternalStream = false
+        private var rustPresentation = false
+        private var rustVideoEnabled = false
+        private var rustIsConference = false
+        private var rustEncryption: OngoingGroupCallEncryptionContext?
+        private var rustConferencePeers: [UInt32: Int64] = [:]
+        private var rustVideoCapture: OngoingCallVideoCapturer?
+        private let rustVideoCaptureDisposable = MetaDisposable()
+        private let rustVideoFrames = ValuePipe<(String, VideoFrameData)>()
 #endif
         
         let joinPayload = Promise<(String, UInt32)>()
@@ -540,17 +563,23 @@ public final class OngoingGroupCallContext {
             let tempStatsLogPath = self.tempStatsLogFile.path
 
 #if os(iOS) && TGCALLS_RUST
-            if RustCallMedia.selected, !isConference, encryptionContext == nil, !isStream,
-               video == nil, videoContentType != .screencast, !disableAudioInput {
+            if !isStream {
                 self.audioDevice = nil
                 self.context = nil
                 self.rustRequested = true
                 self.rustRejoin = rejoinNeeded
                 self.rustNoiseSuppression = enableNoiseSuppression
+                self.rustPresentation = disableAudioInput && videoContentType == .screencast
+                self.rustVideoEnabled = videoContentType != .none
+                self.rustIsConference = isConference
+                self.rustEncryption = encryptionContext
+                self.rustMuted = !self.rustPresentation
+                self.rustVideoCapture = video
                 self.prepareRustGroup()
                 self.audioSessionActiveDisposable.set((audioSessionActive |> deliverOn(queue)).start(next: { [weak self] active in
                     self?.rustAudioActive = active
                     self?.rustMedia?.setAudioActive(active)
+                    self?.rustBroadcast?.setAudioActive(active)
                 }))
                 return
             }
@@ -881,10 +910,15 @@ public final class OngoingGroupCallContext {
         
         deinit {
             self.audioSessionActiveDisposable.dispose()
+#if os(iOS) && TGCALLS_RUST
+            self.rustVideoCaptureDisposable.dispose()
+#endif
         }
 
 #if os(iOS) && TGCALLS_RUST
         private func prepareRustGroup() {
+            rustBroadcast?.stop()
+            rustBroadcast = nil
             rustMedia?.stop()
             rustMedia = nil
             rustTransportReady = false
@@ -892,8 +926,10 @@ public final class OngoingGroupCallContext {
             networkState.set(NetworkState(isConnected: false, isTransitioningFromBroadcastToRtc: false, isBroadcast: false))
             signalBars.set(0)
             joinPayload.set(.never())
+            guard !rustIsConference || rustEncryption != nil else { return }
             do {
-                let media = try RustCallMedia(queue: queue.queue, group: true)
+                let layers = rustVideoEnabled ? RustCallVideo.layers(presentation: rustPresentation, conference: rustIsConference) : []
+                let media = try RustCallMedia(queue: queue.queue, group: true, videoLayers: layers, presentation: rustPresentation, encryption: rustEncryption, hardened: rustHardened)
                 media.setMuted(rustMuted)
                 media.setNoiseSuppression(rustNoiseSuppression)
                 media.setAudioActive(rustAudioActive)
@@ -906,8 +942,14 @@ public final class OngoingGroupCallContext {
                     self?.ssrcActivities.putNext(levels.compactMap { $0.2 ? $0.0 : nil })
                 }
                 media.networkChanged = { [weak self] in self?.rustRejoin?() }
+                media.incomingVideo = { [weak self] endpoint, frame in
+                    if let buffer = RustCallVideo.pixelBuffer(frame) {
+                        self?.rustVideoFrames.putNext((endpoint, VideoFrameData(pixelBuffer: buffer)))
+                    }
+                }
                 let payload = try media.joinPayload()
                 rustMedia = media
+                bindRustCamera(rustVideoCapture)
                 joinPayload.set(.single(payload))
             } catch {
                 Logger.shared.log("TgCallsRust", "Failed to initialize the group media engine")
@@ -919,6 +961,28 @@ public final class OngoingGroupCallContext {
             do { try media.addSources(Array(rustSources)) }
             catch { rustRejoin?() }
         }
+
+        private func bindRustCamera(_ capture: OngoingCallVideoCapturer?) {
+            rustVideoCapture = capture
+            guard let capture else {
+                rustVideoCaptureDisposable.set(nil)
+                return
+            }
+            let pending = Atomic<Bool>(value: false)
+            let queue = self.queue
+            rustVideoCaptureDisposable.set(capture.video().start(next: { [weak self] frame in
+                guard !pending.swap(true) else { return }
+                queue.justDispatch {
+                    defer { let _ = pending.swap(false) }
+                    self?.rustMedia?.sendVideo(frame)
+                }
+            }))
+        }
+
+        func setConferencePeers(_ mapping: [UInt32: Int64]) {
+            rustConferencePeers = mapping
+            rustMedia?.setConferencePeers(mapping)
+        }
 #endif
         
         func setJoinResponse(payload: String) {
@@ -928,7 +992,9 @@ public final class OngoingGroupCallContext {
                 do {
                     try media.connectGroup(payload)
                     rustTransportReady = true
+                    media.setConferencePeers(rustConferencePeers)
                     applyRustSources()
+                    try media.requestVideo(currentRequestedVideoChannels)
                 } catch {
                     media.stop()
                     Logger.shared.log("TgCallsRust", "The group media transport could not be started")
@@ -941,6 +1007,9 @@ public final class OngoingGroupCallContext {
         
         func setAudioStreamData(audioStreamData: AudioStreamData?) {
             if let audioStreamData = audioStreamData {
+#if os(iOS) && TGCALLS_RUST
+                rustExternalStream = audioStreamData.isExternalStream
+#endif
                 let broadcastPartsSource = NetworkBroadcastPartSource(queue: self.queue, engine: audioStreamData.engine, callId: audioStreamData.callId, accessHash: audioStreamData.accessHash, isExternalStream: audioStreamData.isExternalStream)
                 let _ = self.broadcastPartsSource.swap(broadcastPartsSource)
             }
@@ -983,6 +1052,16 @@ public final class OngoingGroupCallContext {
             if self.currentRequestedVideoChannels != channels {
                 self.currentRequestedVideoChannels = channels
 
+#if os(iOS) && TGCALLS_RUST
+                if rustRequested {
+                    if rustTransportReady {
+                        do { try rustMedia?.requestVideo(channels) }
+                        catch { Logger.shared.log("TgCallsRust", "Group video subscription was rejected") }
+                    }
+                    return
+                }
+#endif
+
                 self.context?.setRequestedVideoChannels(channels.map { channel -> OngoingGroupCallRequestedVideoChannel in
                     let mappedMinQuality: OngoingGroupCallRequestedVideoQuality
                     switch channel.minQuality {
@@ -1022,7 +1101,10 @@ public final class OngoingGroupCallContext {
 #if os(iOS) && TGCALLS_RUST
             rustMedia?.stop()
             rustMedia = nil
+            rustBroadcast?.stop()
+            rustBroadcast = nil
             rustTransportReady = false
+            rustVideoCaptureDisposable.set(nil)
 #endif
             self.context?.stop()
             
@@ -1073,6 +1155,16 @@ public final class OngoingGroupCallContext {
                     rustMedia?.stop()
                     rustTransportReady = false
                     networkState.set(NetworkState(isConnected: false, isTransitioningFromBroadcastToRtc: false, isBroadcast: true))
+                    if !rustIsConference, !rustExternalStream, let source = broadcastPartsSource.with({ $0 }) {
+                        do {
+                            rustBroadcast = try RustBroadcastAudio(queue: queue, source: source, hardened: rustHardened, state: { [weak self] connected in
+                                self?.networkState.set(NetworkState(isConnected: connected, isTransitioningFromBroadcastToRtc: false, isBroadcast: true))
+                            }, rejoin: { [weak self] in self?.rustRejoin?() })
+                            rustBroadcast?.setAudioActive(rustAudioActive)
+                        } catch {
+                            Logger.shared.log("TgCallsRust", "Broadcast audio initialization failed")
+                        }
+                    }
                 }
                 return
             }
@@ -1122,6 +1214,12 @@ public final class OngoingGroupCallContext {
         }
         
         func requestVideo(_ capturer: OngoingCallVideoCapturer?) {
+#if os(iOS) && TGCALLS_RUST
+            if rustRequested {
+                bindRustCamera(capturer)
+                return
+            }
+#endif
             let queue = self.queue
             self.context?.requestVideo(capturer?.impl, completion: { [weak self] payload, ssrc in
                 queue.async {
@@ -1134,6 +1232,12 @@ public final class OngoingGroupCallContext {
         }
         
         public func disableVideo() {
+#if os(iOS) && TGCALLS_RUST
+            if rustRequested {
+                bindRustCamera(nil)
+                return
+            }
+#endif
             let queue = self.queue
             self.context?.disableVideo({ [weak self] payload, ssrc in
                 queue.async {
@@ -1207,6 +1311,11 @@ public final class OngoingGroupCallContext {
 
 
         func video(endpointId: String) -> Signal<OngoingGroupCallContext.VideoFrameData, NoError> {
+#if os(iOS) && TGCALLS_RUST
+            if rustRequested {
+                return rustVideoFrames.signal() |> filter { $0.0 == endpointId } |> map { $0.1 }
+            }
+#endif
             let queue = self.queue
             return Signal { [weak self] subscriber in
                 let disposable = MetaDisposable()
@@ -1421,6 +1530,12 @@ public final class OngoingGroupCallContext {
         self.impl.with { impl in
             impl.addSsrcs(ssrcs: ssrcs)
         }
+    }
+
+    public func setConferencePeers(_ mapping: [UInt32: Int64]) {
+#if os(iOS) && TGCALLS_RUST
+        self.impl.with { impl in impl.setConferencePeers(mapping) }
+#endif
     }
     
     public func removeSsrcs(ssrcs: [UInt32]) {

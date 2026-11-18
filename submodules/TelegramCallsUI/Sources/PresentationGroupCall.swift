@@ -894,9 +894,9 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
         
         self.temporaryJoinTimestamp = Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970)
 
-        let useRustAudio = OngoingCallContext.callsRustSelected && !isConference && !isStream && !beginWithVideo && keyPair == nil
+        let useRustAudio = OngoingCallContext.callsRustAvailable && !isStream
         self.useRustAudio = useRustAudio
-        self.isVideoEnabled = !useRustAudio
+        self.isVideoEnabled = true
         self.hasVideo = false
         self.hasScreencast = false
         self.isStream = isStream
@@ -1241,7 +1241,7 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
         let embeddedBroadcastImplementationTypePath = self.accountContext.sharedContext.basePath + "/broadcast-coordination-type-v2"
         
         let screencastIPCContext: ScreencastIPCContext
-        if useIPCContext {
+        if useIPCContext && !self.useRustAudio {
             screencastIPCContext = ScreencastEmbeddedIPCContext(basePath: self.accountContext.sharedContext.basePath)
             let _ = try? "ipc".write(toFile: embeddedBroadcastImplementationTypePath, atomically: true, encoding: .utf8)
         } else {
@@ -2143,6 +2143,9 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
                                 callContext.setConnectionMode(.rtc, keepBroadcastConnectedIfWasEnabled: false, isUnifiedBroadcast: false)
                                 callContext.setJoinResponse(payload: clientParams)
                                 if self.useRustAudio {
+                                    if self.isConference {
+                                        callContext.setConferencePeers(Self.conferencePeers(joinCallResult.state.participants))
+                                    }
                                     callContext.addSsrcs(ssrcs: joinCallResult.state.participants.compactMap(\.ssrc))
                                 }
                             case .broadcast:
@@ -2726,6 +2729,7 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
                     
                     self.membersValue = members
                     if self.useRustAudio, case let .call(callContext) = self.genericCallContext {
+                        if self.isConference { callContext.setConferencePeers(Self.conferencePeers(state.participants)) }
                         callContext.addSsrcs(ssrcs: state.participants.compactMap(\.ssrc))
                     }
                     
@@ -2742,7 +2746,7 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
                     stateValue.recordingStartTimestamp = state.recordingStartTimestamp
                     stateValue.title = state.title
                     stateValue.scheduleTimestamp = state.scheduleTimestamp
-                    stateValue.isVideoEnabled = !self.useRustAudio && state.isVideoEnabled && otherParticipantsWithVideo < state.unmutedVideoLimit
+                    stateValue.isVideoEnabled = state.isVideoEnabled && otherParticipantsWithVideo < state.unmutedVideoLimit
                     stateValue.isVideoWatchersLimitReached = videoWatchingParticipants >= configuration.videoParticipantsMaxCount
                     stateValue.isUnifiedStream = state.isStream
                     stateValue.defaultSendAs = state.defaultSendAs
@@ -2843,6 +2847,23 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
         }
     }
     
+    private static func conferencePeers(_ participants: [GroupCallParticipantsContext.Participant]) -> [UInt32: Int64] {
+        var mapping: [UInt32: Int64] = [:]
+        var conflicting = Set<UInt32>()
+        for participant in participants {
+            guard let peer = participant.peer, case .user = peer else { continue }
+            let userId = peer.id.id._internalGetInt64Value()
+            for source in [participant.ssrc, participant.presentationDescription?.audioSsrc].compactMap({ $0 }) where source != 0 {
+                if let existing = mapping[source], existing != userId {
+                    conflicting.insert(source)
+                }
+                mapping[source] = userId
+            }
+        }
+        for source in conflicting { mapping.removeValue(forKey: source) }
+        return mapping
+    }
+
     private func requestMediaChannelDescriptions(ssrcs: Set<UInt32>, completion: @escaping ([OngoingGroupCallContext.MediaChannelDescription]) -> Void) -> Disposable {
         func extractMediaChannelDescriptions(remainingSsrcs: inout Set<UInt32>, participants: [GroupCallParticipantsContext.Participant], into result: inout [OngoingGroupCallContext.MediaChannelDescription]) {
             for participant in participants {
@@ -3507,7 +3528,6 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
     }
 
     private func requestScreencast() {
-        guard !self.useRustAudio else { return }
         guard let callInfo = self.internalState.callInfo else {
             return
         }

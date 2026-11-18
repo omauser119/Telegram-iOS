@@ -1811,9 +1811,6 @@ private enum DebugControllerEntry: ItemListNodeEntry {
         case let .callsHardenMode(value):
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Calls Harden Mode", value: value, sectionId: self.section, style: .blocks, updated: { value in
                 UserDefaults.standard.set(value, forKey: "CallsHardenMode")
-                arguments.context?.account.callSessionManager.updateVersions(versions: OngoingCallContext.versions(includeExperimental: true, includeReference: true).map {
-                    CallSessionManagerImplementationVersion(version: $0.version, supportsVideo: $0.supportsVideo)
-                })
             })
         case let .playerV2(value):
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "PlayerV2", value: value, sectionId: self.section, style: .blocks, updated: { value in
@@ -2234,7 +2231,7 @@ private func debugControllerEntries(context: AccountContext?, sharedContext: Sha
         #endif
         
         if OngoingCallContext.callsRustAvailable {
-            entries.append(.callsHardenMode(OngoingCallContext.callsRustSelected))
+            entries.append(.callsHardenMode(OngoingCallContext.callsHardenMode))
         }
         entries.append(.logTranslationRecognition(experimentalSettings.logLanguageRecognition))
         entries.append(.resetTranslationStates)

@@ -179,14 +179,18 @@ private final class RustCallSocket {
 /// Owns the local media device and the narrowly scoped UDP capability for one call.
 /// All methods run on the same serial queue as the parent Telegram call context.
 final class RustCallMedia {
-    static var selected: Bool { UserDefaults.standard.bool(forKey: "CallsHardenMode") }
+    static var hardenedByDefault: Bool { UserDefaults.standard.bool(forKey: "CallsHardenMode") }
     static let versions = ["9.0.0", "8.0.0"]
 
     private let queue: DispatchQueue
     private let group: Bool
     private let ssrc: UInt32
     private let ice: [RustIceServer]
+    private let videoLayers: [VideoConfig]
+    private let presentation: Bool
+    private let encryption: OngoingGroupCallEncryptionContext?
     private let worker: LocalWorker
+    let hardened: Bool
     private var socket: RustCallSocket
     private var audio: TGCallsIOSAudioDevice?
     private var timer: DispatchSourceTimer?
@@ -204,6 +208,11 @@ final class RustCallMedia {
     private var playback: [UInt32: [Data]] = [:]
     private var groupLiveSources: Set<UInt32> = []
     private var sourceVolume: [UInt32: Double] = [:]
+    private var peers: [UInt32: Int64] = [:]
+    private var videoPeers: [UInt32: Int64] = [:]
+    private var endpoints: [UInt32: String] = [:]
+    private var lastVideo: UInt64 = 0
+    private var videoNegotiated = false
     private var sentBytes: Int64 = 0
     private var receivedBytes: Int64 = 0
     private var tick = 0
@@ -212,22 +221,33 @@ final class RustCallMedia {
     var levels: (([(UInt32, Float, Bool)]) -> Void)?
     var signaling: ((Data) -> Void)?
     var networkChanged: (() -> Void)?
+    var incomingVideo: ((String, TgCallsRust.VideoFrame) -> Void)?
 
-    init(queue: DispatchQueue, group: Bool, ice: [RustIceServer] = []) throws {
+    init(queue: DispatchQueue, group: Bool, ice: [RustIceServer] = [], videoLayers: [VideoConfig] = [],
+         presentation: Bool = false, encryption: OngoingGroupCallEncryptionContext? = nil,
+         hardened: Bool = RustCallMedia.hardenedByDefault) throws {
         self.queue = queue
         self.group = group
-        self.ssrc = UInt32.random(in: 1...UInt32.max - 2)
+        self.ssrc = UInt32.random(in: 1...UInt32(Int32.max) - 6)
         self.ice = Array(ice.prefix(16))
-        guard let wasmURL = Bundle.main.url(forResource: "tgcalls-worker", withExtension: "wasm") else {
-            throw RustCallMediaError.missingGuest
+        self.videoLayers = videoLayers
+        self.presentation = presentation
+        self.encryption = encryption
+        self.hardened = hardened
+        if hardened {
+            guard let wasmURL = Bundle.main.url(forResource: "tgcalls-worker", withExtension: "wasm") else {
+                throw RustCallMediaError.missingGuest
+            }
+            worker = try LocalWorker(wasmModule: Data(contentsOf: wasmURL, options: .mappedIfSafe), hardened: true)
+        } else {
+            worker = try LocalWorker(hardened: false)
         }
-        let wasm = try Data(contentsOf: wasmURL, options: .mappedIfSafe)
-        worker = try LocalWorker(wasmModule: wasm, hardened: true)
         socket = try Self.openSocket(group: group, ice: self.ice)
         let usableIce = self.ice.filter { $0.endpoint.family == socket.local.family }
         allowed = Set(usableIce.map(\.endpoint))
         try request(["op": "new", "local": socket.local.address, "ssrc": ssrc, "group": group,
-                     "relay_only": !group, "ice_servers": usableIce.map(\.request)])
+                     "relay_only": !group, "ice_servers": usableIce.map(\.request), "conference": encryption != nil,
+                     "video_layers": group ? videoLayers.map { ["width": $0.width, "height": $0.height, "fps": $0.fps, "bitrate": $0.bitrate] } : []])
     }
 
     deinit { stop() }
@@ -269,7 +289,41 @@ final class RustCallMedia {
         for payload in output.signaling.prefix(64) where payload.count <= 65_536 {
             signaling?(Data(payload))
         }
+        for frame in output.video.prefix(4) {
+            if let endpoint = endpoints[frame.ssrc] {
+                incomingVideo?(endpoint, frame)
+            }
+        }
+        for frame in output.conferenceFrames.prefix(16) {
+            guard let encryption, frame.bytes.count <= 1024 * 1024,
+                  (0..<frame.bytes.count).contains(frame.clearBytes) else { continue }
+            let input = Data(frame.bytes)
+            var transformed: Data?
+            if frame.encrypt {
+                for _ in 0..<(frame.kind == .h264 ? 4 : 1) {
+                    guard let cipher = encryption.encrypt(message: input, plaintextPrefixLength: frame.clearBytes) else { break }
+                    if frame.kind == .audio || !containsStartCode(cipher, start: max(0, frame.clearBytes - 2)) {
+                        transformed = cipher
+                        break
+                    }
+                }
+            } else if let peer = peers[frame.ssrc] ?? videoPeers[frame.ssrc] {
+                transformed = encryption.decrypt(message: input, userId: peer)
+            }
+            var request = Data([0x54, 0x47, 0x43, 1, 5])
+            var identity = frame.id.littleEndian
+            withUnsafeBytes(of: &identity) { request.append(contentsOf: $0) }
+            if let transformed, transformed.count <= 1024 * 1024 { request.append(transformed) }
+            tolerateRejected { try submit(request) }
+        }
         return reply
+    }
+
+    private func containsStartCode(_ bytes: Data, start: Int) -> Bool {
+        guard start < bytes.count - 2 else { return false }
+        return bytes.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
+            (start..<(buffer.count - 2)).contains { buffer[$0] == 0 && buffer[$0 + 1] == 0 && buffer[$0 + 2] == 1 }
+        }
     }
 
     func startPersonal(key: Data, outgoing: Bool) throws {
@@ -308,7 +362,11 @@ final class RustCallMedia {
         }
         guard !endpoints.isEmpty else { throw RustCallMediaError.badTransport }
         allowed = Set(endpoints)
-        try request(["op": "group_connect", "params": params])
+        struct GroupAnswer: Decodable { let payload: String }
+        let answer = try decoder.decode(GroupAnswer.self, from: request(["op": "group_connect", "params": params]))
+        videoNegotiated = answer.payload.split(separator: "\r\n").contains { line in
+            line.hasPrefix("m=video ") && !line.hasPrefix("m=video 0 ")
+        }
         startPump()
     }
 
@@ -319,11 +377,61 @@ final class RustCallMedia {
         groupLiveSources.formUnion(next)
     }
 
+    func setConferencePeers(_ mapping: [UInt32: Int64]) {
+        peers = mapping.filter { $0.key != 0 && $0.value != 0 }
+    }
+
+    func requestVideo(_ channels: [OngoingGroupCallContext.VideoChannel]) throws {
+        guard videoNegotiated, !videoLayers.isEmpty else { return }
+        var endpoints: [UInt32: String] = [:]
+        var users: [UInt32: Int64] = [:]
+        var subscriptions: [[String: Any]] = []
+        func height(_ quality: OngoingGroupCallContext.VideoChannel.Quality) -> Int {
+            switch quality {
+            case .thumbnail: return 180
+            case .medium: return 360
+            case .full: return 720
+            }
+        }
+        for channel in channels.prefix(4) {
+            let fid = channel.ssrcGroups.filter { $0.semantics == "FID" && $0.ssrcs.count == 2 }
+            let primary = channel.ssrcGroups.first(where: { $0.semantics == "SIM" })?.ssrcs ?? fid.map { $0.ssrcs[0] }
+            var sources: [[String: Any]] = []
+            for source in primary.prefix(3) where source != 0 {
+                var spec: [String: Any] = ["ssrc": source]
+                if let secondary = fid.first(where: { $0.ssrcs[0] == source })?.ssrcs[1] { spec["rtx"] = secondary }
+                sources.append(spec)
+                endpoints[source] = channel.endpointId
+                users[source] = channel.peerId
+            }
+            if !sources.isEmpty {
+                subscriptions.append(["endpoint": channel.endpointId, "sources": sources,
+                                      "min_height": height(channel.minQuality), "max_height": height(channel.maxQuality)])
+            }
+        }
+        try request(["op": "group_video", "subscriptions": subscriptions])
+        videoPeers = users
+        self.endpoints = endpoints
+    }
+
+    func sendVideo(_ frame: OngoingGroupCallContext.VideoFrameData) {
+        guard !closed, connected, videoNegotiated, let format = videoLayers.last else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        let interval = 1_000_000_000 / UInt64(format.fps)
+        guard now &- lastVideo >= interval,
+              let i420 = RustCallVideo.prepare(frame, width: format.width, height: format.height) else { return }
+        lastVideo = now
+        var input = Data([0x54, 0x47, 0x43, 1, 4])
+        input.append(i420)
+        tolerateRejected { try submit(input) }
+    }
+
     func removeSources(_ sources: [UInt32]) {
         groupLiveSources.subtract(sources)
         for source in sources {
             playback.removeValue(forKey: source)
             sourceVolume.removeValue(forKey: source)
+            peers.removeValue(forKey: source)
         }
     }
 
@@ -371,16 +479,18 @@ final class RustCallMedia {
     private func startPump() {
         guard timer == nil else { return }
         startReader()
-        let audio = TGCallsIOSAudioDevice(queue: queue, manageSessionActivation: false, capture: { [weak self] pcm, rate, channels, delay in
+        if !presentation {
+            let audio = TGCallsIOSAudioDevice(queue: queue, manageSessionActivation: false, capture: { [weak self] pcm, rate, channels, delay in
             self?.onCapture(pcm, rate, channels, delay)
         }, render: { [weak self] pcm in
             self?.onRender(pcm)
         }, failure: { [weak self] _ in self?.fail() })
-        self.audio = audio
-        perform { try audio.start() }
-        guard !closed else { return }
-        audio.setCallKitActive(audioActive)
-        guard !closed else { return }
+            self.audio = audio
+            perform { try audio.start() }
+            guard !closed else { return }
+            audio.setCallKitActive(audioActive)
+            guard !closed else { return }
+        }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in self?.pump() }

@@ -316,7 +316,7 @@ private final class RustPersonalAudioContext: OngoingCallThreadLocalContextProto
     func nativeSetRequestedVideoAspect(_ aspect: Float) { }
     func nativeDisableVideo() { }
     func nativeBeginTermination() { media.stop() }
-    func nativeDebugInfo() -> String { "tgcalls-rs / Wasmi / TURN UDP" }
+    func nativeDebugInfo() -> String { "tgcalls-rs / \(media.hardened ? "Wasmi" : "native") / TURN UDP" }
     func nativeVersion() -> String { "tgcalls-rs" }
     func nativeGetDerivedState() -> Data { Data() }
     func addExternalAudioData(data: Data) { media.sendExternalAudio(data) }
@@ -983,9 +983,9 @@ public final class OngoingCallContext {
         #endif
     }
 
-    public static var callsRustSelected: Bool {
+    public static var callsHardenMode: Bool {
         #if os(iOS) && TGCALLS_RUST
-        return RustCallMedia.selected
+        return RustCallMedia.hardenedByDefault
         #else
         return false
         #endif
@@ -993,15 +993,14 @@ public final class OngoingCallContext {
 
     public static func versions(includeExperimental: Bool, includeReference: Bool) -> [(version: String, supportsVideo: Bool)] {
         #if os(iOS) && TGCALLS_RUST
-        if Self.callsRustSelected {
-            return RustCallMedia.versions.map { ($0, false) }
-        }
-        #endif
+        return RustCallMedia.versions.map { ($0, false) }
+        #else
         var result: [(version: String, supportsVideo: Bool)] = []
         result.append(contentsOf: OngoingCallThreadLocalContextWebrtc.versions(withIncludeReference: includeReference).map { version -> (version: String, supportsVideo: Bool) in
             return (version, true)
         })
         return result
+        #endif
     }
 
     public init(account: Account, callSessionManager: CallSessionManager, callId: CallId, internalId: CallSessionInternalId, proxyServer: ProxyServerSettings?, initialNetworkType: NetworkType, updatedNetworkType: Signal<NetworkType, NoError>, serializedData: String?, dataSaving: VoiceCallDataSaving, key: Data, isOutgoing: Bool, video: OngoingCallVideoCapturer?, connections: CallSessionConnectionSet, maxLayer: Int32, version: String, customParameters: String?, allowP2P: Bool, enableTCP: Bool, enableStunMarking: Bool, audioSessionActive: Signal<Bool, NoError>, logName: String, preferredVideoCodec: String?, audioDevice: AudioDevice?) {
@@ -1025,7 +1024,8 @@ public final class OngoingCallContext {
         
         cleanupCallLogs(account: account)
         #if os(iOS) && TGCALLS_RUST
-        let useRust = Self.callsRustSelected
+        let useRust = Self.callsRustAvailable
+        let hardened = Self.callsHardenMode
         #endif
         
         self.audioSessionDisposable.set((audioSessionActive
@@ -1170,7 +1170,7 @@ public final class OngoingCallContext {
                         }
                     }
                     do {
-                        let media = try RustCallMedia(queue: queue.queue, group: false, ice: ice)
+                        let media = try RustCallMedia(queue: queue.queue, group: false, ice: ice, hardened: hardened)
                         media.stateChanged = update
                         media.signaling = { [weak self] data in self?.sendSignalingData(data: data) }
                         media.setMuted(strongSelf.requestedMute)

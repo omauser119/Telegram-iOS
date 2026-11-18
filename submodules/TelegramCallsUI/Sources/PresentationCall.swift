@@ -348,7 +348,7 @@ public final class PresentationCallImpl: PresentationCall {
         let legacyAudioDeviceBehavior = SharedCallAudioContext.isLegacyBehaviorEnabled(appConfiguration: context.currentAppConfiguration.with({ $0 }))
         OngoingCallContext.AudioDevice.setLegacyBehaviorEnabled(legacyAudioDeviceBehavior)
         
-        if OngoingCallContext.callsRustSelected {
+        if OngoingCallContext.callsRustAvailable {
             self.sharedAudioContext = nil
         } else if let data = context.currentAppConfiguration.with({ $0 }).data, let _ = data["ios_killswitch_disable_call_device"] {
             self.sharedAudioContext = nil
