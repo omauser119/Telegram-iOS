@@ -762,6 +762,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case liveStreamV2(Bool)
     case experimentalCallMute(Bool)
     case groupCallReferenceEngine(Bool)
+    case callsHardenMode(Bool)
     case playerV2(Bool)
     case devRequests(Bool)
     case enableUpdates(Bool)
@@ -798,7 +799,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return DebugControllerSection.resetApp.rawValue
         case .experimentsHeader, .keepChatNavigationStack, .skipReadHistory, .alwaysDisplayTyping, .debugRatingLayout, .crashOnSlowQueries, .crashOnMemoryPressure:
             return DebugControllerSection.experiments.rawValue
-        case .crash, .resetBiometricsData, .photoPreview, .knockoutWallpaper, .compressedEmojiCache, .storiesJpegExperiment, .checkSerializedData, .enableQuickReactionSwitch, .experimentalCompatibility, .enableDebugDataDisplay, .fakeGlass, .forceClearGlass, .debugRipple, .inputDecEngineEditor, .coreListChatBackend, .coreListScrollTrace, .respectSystemMicrophone, .useModernVideoMessagePipeline, .videoMessageCameraMode, .browserExperiment, .allForumsHaveTabs, .enableReactionOverrides, .disableReloginTokens, .liveStreamV2, .experimentalCallMute, .groupCallReferenceEngine, .playerV2, .devRequests, .enableUpdates, .pwa, .enableLocalTranslation, .testPasscodeMigration:
+        case .crash, .resetBiometricsData, .photoPreview, .knockoutWallpaper, .compressedEmojiCache, .storiesJpegExperiment, .checkSerializedData, .enableQuickReactionSwitch, .experimentalCompatibility, .enableDebugDataDisplay, .fakeGlass, .forceClearGlass, .debugRipple, .inputDecEngineEditor, .coreListChatBackend, .coreListScrollTrace, .respectSystemMicrophone, .useModernVideoMessagePipeline, .videoMessageCameraMode, .browserExperiment, .allForumsHaveTabs, .enableReactionOverrides, .disableReloginTokens, .liveStreamV2, .experimentalCallMute, .groupCallReferenceEngine, .callsHardenMode, .playerV2, .devRequests, .enableUpdates, .pwa, .enableLocalTranslation, .testPasscodeMigration:
             return DebugControllerSection.experiments.rawValue
         case .inputDecTextBackend, .springSendAnimation, .fakeWalletTransfers, .chatMediaEditorLegacy, .insertWidgetConformanceSet, .insertWidgetGames, .mediaGridLegacy, .sharedMediaGridLegacy, .storyLegacyVideoWriter, .chatLegacyVideoWriter, .chatSideListLegacy, .runWidgetStressKit, .showWidgetWalletWindow:
             return DebugControllerSection.experiments.rawValue
@@ -939,6 +940,8 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return 61
         case .groupCallReferenceEngine:
             return 62
+        case .callsHardenMode:
+            return 113
         case .playerV2:
             return 63
         case .devRequests:
@@ -1805,6 +1808,10 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     })
                 }).start()
             })
+        case let .callsHardenMode(value):
+            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Calls Harden Mode", value: value, sectionId: self.section, style: .blocks, updated: { value in
+                UserDefaults.standard.set(value, forKey: "CallsHardenMode")
+            })
         case let .playerV2(value):
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "PlayerV2", value: value, sectionId: self.section, style: .blocks, updated: { value in
                 let _ = arguments.sharedContext.accountManager.transaction ({ transaction in
@@ -2223,6 +2230,7 @@ private func debugControllerEntries(context: AccountContext?, sharedContext: Sha
         entries.append(.showWidgetWalletWindow)
         #endif
         
+        entries.append(.callsHardenMode(UserDefaults.standard.bool(forKey: "CallsHardenMode")))
         entries.append(.logTranslationRecognition(experimentalSettings.logLanguageRecognition))
         entries.append(.resetTranslationStates)
     }

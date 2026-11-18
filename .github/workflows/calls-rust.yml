@@ -1,0 +1,47 @@
+name: Build Telegram iOS Calls branch
+on:
+  workflow_dispatch:
+  push:
+    branches: [calls-rust]
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Use HTTPS for upstream submodules
+        run: git config --global url.https://github.com/.insteadOf git@github.com:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Select the pinned Xcode when present
+        run: |
+          xcode_version="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
+          task_xcode="/Applications/Xcode_${xcode_version}.app/Contents/Developer"
+          if [[ -d "$task_xcode" ]]; then
+            echo "DEVELOPER_DIR=$task_xcode" >> "$GITHUB_ENV"
+          fi
+          xcodebuild -version
+      - name: Build the simulator app
+        run: |
+          python3 -u build-system/Make/Make.py --overrideXcodeVersion \
+            --bazelUserRoot="$RUNNER_TEMP/bazel" build \
+            --configurationPath=build-system/appstore-configuration.json \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=debug_sim_arm64 --buildNumber="$GITHUB_RUN_NUMBER"
+      - name: Archive the simulator app
+        run: |
+          app="$(find -L bazel-bin/Telegram -maxdepth 2 -type d -name Telegram.app -print -quit)"
+          if [[ -n "$app" ]]; then
+            ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Telegram-iOS-Simulator.zip"
+          else
+            test -f bazel-bin/Telegram/Telegram.ipa
+            cp bazel-bin/Telegram/Telegram.ipa "$RUNNER_TEMP/Telegram-iOS-Simulator.ipa"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-iOS-Simulator
+          path: ${{ runner.temp }}/Telegram-iOS-Simulator.*
+          if-no-files-found: error
