@@ -11,7 +11,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Use HTTPS for upstream submodules
-        run: git config --global url.https://github.com/.insteadOf git@github.com:
+        run: |
+          git config --global url.https://github.com/.insteadOf git@github.com:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
