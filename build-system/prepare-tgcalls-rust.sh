@@ -15,13 +15,12 @@ fi
     cd "$engine"
     rustup target add wasm32-wasip1
     bash scripts/build-wasm.sh
-    bash scripts/build-apple.sh
+    bash scripts/build-apple.sh --device-only
 )
 source="$engine/artifacts/apple"
 prepared="$root/submodules/TgCallsRust/Prepared"
-mkdir -p "$prepared"/{device,simulator,headers}
+mkdir -p "$prepared"/{device,headers}
 cp "$source/device/libtgcalls_ffi.a" "$prepared/device/"
-cp "$source/simulator/libtgcalls_ffi.a" "$prepared/simulator/"
 cp "$source/headers/"*.h "$prepared/headers/"
 cp "$source/TgCallsRust.xcframework/Resources/tgcalls-worker.wasm" "$prepared/"
 cp "$engine/sdk/apple/Sources/TgCallsRust/Worker.swift" "$prepared/"

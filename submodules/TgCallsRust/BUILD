@@ -8,18 +8,9 @@ config_setting(
     visibility = ["//visibility:public"],
 )
 
-config_setting(
-    name = "ios_sim_x86_64",
-    values = {"cpu": "ios_x86_64"},
-)
-
 cc_import(
     name = "archive",
-    static_library = select({
-        "//build-system:ios_sim_arm64": "Prepared/simulator/libtgcalls_ffi.a",
-        ":ios_sim_x86_64": "Prepared/simulator/libtgcalls_ffi.a",
-        "//conditions:default": "Prepared/device/libtgcalls_ffi.a",
-    }),
+    static_library = "Prepared/device/libtgcalls_ffi.a",
 )
 
 objc_library(

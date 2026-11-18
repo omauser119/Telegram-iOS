@@ -664,6 +664,8 @@ def build(bazel, arguments):
 
     bazel_command_line.set_split_swiftmodules(arguments.enableParallelSwiftmoduleGeneration)
     if arguments.enableCallsRust:
+        if arguments.configuration not in ('debug_arm64', 'release_arm64'):
+            raise Exception('--enableCallsRust requires an arm64 device configuration')
         bazel_command_line.common_args.append('--define=tgcalls_rust=true')
 
     bazel_command_line.invoke_build()

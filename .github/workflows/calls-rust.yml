@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   iphoneos:
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 90
     steps:
       - name: Use HTTPS for upstream submodules

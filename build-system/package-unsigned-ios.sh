@@ -8,7 +8,7 @@ unzip -q "$input" -d "$stage"
 app="$(find "$stage/Payload" -mindepth 1 -maxdepth 1 -type d -name '*.app' -print -quit)"
 test -n "$app"
 executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
-xcrun lipo -verify_arch arm64 "$app/$executable"
+xcrun lipo "$app/$executable" -verify_arch arm64
 xcrun vtool -show-build "$app/$executable" | grep -Eq 'platform[[:space:]]+IOS[[:space:]]*$'
 test -s "$app/tgcalls-worker.wasm"
 cmp "$app/tgcalls-worker.wasm" submodules/TgCallsRust/Prepared/tgcalls-worker.wasm
