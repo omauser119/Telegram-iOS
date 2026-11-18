@@ -547,6 +547,7 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
     public private(set) var hasVideo: Bool
     public private(set) var hasScreencast: Bool
     private let isVideoEnabled: Bool
+    private let useRustAudio: Bool
     
     private let keyPair: TelegramKeyPair?
     
@@ -893,7 +894,9 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
         
         self.temporaryJoinTimestamp = Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970)
 
-        self.isVideoEnabled = true
+        let useRustAudio = OngoingCallContext.callsRustSelected && !isConference && !isStream && !beginWithVideo && keyPair == nil
+        self.useRustAudio = useRustAudio
+        self.isVideoEnabled = !useRustAudio
         self.hasVideo = false
         self.hasScreencast = false
         self.isStream = isStream
@@ -962,8 +965,8 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
             self.messagesStatePromise.set(self.messagesContext!.state)
         }
         
-        var sharedAudioContext = sharedAudioContext
-        if sharedAudioContext == nil {
+        var sharedAudioContext = useRustAudio ? nil : sharedAudioContext
+        if sharedAudioContext == nil && !useRustAudio {
             var useSharedAudio = true
             var canReuseCurrent = !isStream
             // Also covers the device GroupCallContext creates itself when shared audio is off.
@@ -2139,6 +2142,9 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
                                 self.currentConnectionMode = .rtc
                                 callContext.setConnectionMode(.rtc, keepBroadcastConnectedIfWasEnabled: false, isUnifiedBroadcast: false)
                                 callContext.setJoinResponse(payload: clientParams)
+                                if self.useRustAudio {
+                                    callContext.addSsrcs(ssrcs: joinCallResult.state.participants.compactMap(\.ssrc))
+                                }
                             case .broadcast:
                                 self.currentConnectionMode = .broadcast
                                 callContext.setAudioStreamData(audioStreamData: OngoingGroupCallContext.AudioStreamData(engine: self.accountContext.engine, callId: callInfo.id, accessHash: callInfo.accessHash, isExternalStream: callInfo.isStream))
@@ -2719,6 +2725,9 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
                     members.loadMoreToken = state.nextParticipantsFetchOffset
                     
                     self.membersValue = members
+                    if self.useRustAudio, case let .call(callContext) = self.genericCallContext {
+                        callContext.addSsrcs(ssrcs: state.participants.compactMap(\.ssrc))
+                    }
                     
                     var stateValue = self.stateValue
                     stateValue.adminIds = adminIds
@@ -2733,7 +2742,7 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
                     stateValue.recordingStartTimestamp = state.recordingStartTimestamp
                     stateValue.title = state.title
                     stateValue.scheduleTimestamp = state.scheduleTimestamp
-                    stateValue.isVideoEnabled = state.isVideoEnabled && otherParticipantsWithVideo < state.unmutedVideoLimit
+                    stateValue.isVideoEnabled = !self.useRustAudio && state.isVideoEnabled && otherParticipantsWithVideo < state.unmutedVideoLimit
                     stateValue.isVideoWatchersLimitReached = videoWatchingParticipants >= configuration.videoParticipantsMaxCount
                     stateValue.isUnifiedStream = state.isStream
                     stateValue.defaultSendAs = state.defaultSendAs
@@ -3498,6 +3507,7 @@ public final class PresentationGroupCallImpl: PresentationGroupCall {
     }
 
     private func requestScreencast() {
+        guard !self.useRustAudio else { return }
         guard let callInfo = self.internalState.callInfo else {
             return
         }

@@ -1929,7 +1929,10 @@ ios_application(
     resources = [
         ":LaunchScreen",
         #":DefaultAppIcon",
-    ],
+    ] + select({
+        "//submodules/TgCallsRust:enabled": ["//submodules/TgCallsRust:wasm"],
+        "//conditions:default": [],
+    }),
     frameworks = [
         ":MtProtoKitFramework",
         ":SwiftSignalKitFramework",

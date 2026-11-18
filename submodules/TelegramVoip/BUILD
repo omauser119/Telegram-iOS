@@ -11,6 +11,10 @@ swift_library(
     copts = [
         "-warnings-as-errors",
     ],
+    defines = select({
+        "//submodules/TgCallsRust:enabled": ["TGCALLS_RUST"],
+        "//conditions:default": [],
+    }),
     deps = [
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
         "//submodules/TelegramCore:TelegramCore",
@@ -19,7 +23,13 @@ swift_library(
         "//submodules/FFMpegBinding",
         "//submodules/ManagedFile",
         "//submodules/AppBundle",
-    ],
+    ] + select({
+        "//submodules/TgCallsRust:enabled": [
+            "//submodules/TgCallsRust:CTgCalls",
+            "//submodules/TgCallsRust:TgCallsRust",
+        ],
+        "//conditions:default": [],
+    }),
     visibility = [
         "//visibility:public",
     ],

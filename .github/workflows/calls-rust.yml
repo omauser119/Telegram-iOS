@@ -1,4 +1,4 @@
-name: Build Telegram iOS Calls branch
+name: Build unsigned Telegram for iPhone
 on:
   workflow_dispatch:
   push:
@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 jobs:
-  simulator:
+  iphoneos:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -17,6 +17,9 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          targets: wasm32-wasip1,aarch64-apple-ios
       - name: Select the pinned Xcode when present
         run: |
           xcode_version="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
@@ -25,24 +28,26 @@ jobs:
             echo "DEVELOPER_DIR=$task_xcode" >> "$GITHUB_ENV"
           fi
           xcodebuild -version
-      - name: Build the simulator app
+      - name: Build pinned Rust media engine for iOS
+        run: |
+          test -x "$(brew --prefix llvm)/bin/clang" || brew install llvm
+          engine="$RUNNER_TEMP/tgcalls-rs"
+          git init --quiet "$engine"
+          git -C "$engine" fetch --no-tags --depth 1 https://github.com/omauser119/tgcalls-rs.git "$(cat build-system/tgcalls-rust-revision)"
+          git -C "$engine" checkout --detach FETCH_HEAD
+          bash build-system/prepare-tgcalls-rust.sh "$engine"
+      - name: Build unsigned iOS arm64 app
         run: |
           python3 -u build-system/Make/Make.py --overrideXcodeVersion \
             --bazelUserRoot="$RUNNER_TEMP/bazel" build \
             --configurationPath=build-system/appstore-configuration.json \
-            --codesigningInformationPath=build-system/fake-codesigning \
-            --configuration=debug_sim_arm64 --buildNumber="$GITHUB_RUN_NUMBER"
-      - name: Archive the simulator app
+            --unsignedDevice --enableCallsRust \
+            --configuration=debug_arm64 --buildNumber="$GITHUB_RUN_NUMBER"
+      - name: Verify device Mach-O and archive unsigned IPA
         run: |
-          app="$(find -L bazel-bin/Telegram -maxdepth 2 -type d -name Telegram.app -print -quit)"
-          if [[ -n "$app" ]]; then
-            ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Telegram-iOS-Simulator.zip"
-          else
-            test -f bazel-bin/Telegram/Telegram.ipa
-            cp bazel-bin/Telegram/Telegram.ipa "$RUNNER_TEMP/Telegram-iOS-Simulator.ipa"
-          fi
-      - uses: actions/upload-artifact@v4
+          bash build-system/package-unsigned-ios.sh bazel-bin/Telegram/Telegram.ipa "$RUNNER_TEMP/Telegram-iOS-arm64-unsigned.ipa"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Telegram-iOS-Simulator
-          path: ${{ runner.temp }}/Telegram-iOS-Simulator.*
+          name: Telegram-iOS-arm64-unsigned
+          path: ${{ runner.temp }}/Telegram-iOS-arm64-unsigned.ipa*
           if-no-files-found: error

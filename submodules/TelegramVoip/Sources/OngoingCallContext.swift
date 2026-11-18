@@ -296,7 +296,44 @@ private protocol OngoingCallThreadLocalContextProtocol: AnyObject {
     func addExternalAudioData(data: Data)
     func nativeSetIsAudioSessionActive(isActive: Bool)
     func nativeDeactivateIncomingAudio()
+    func nativeReceiveSignaling(_ data: Data)
 }
+
+#if os(iOS) && TGCALLS_RUST
+private final class RustPersonalAudioContext: OngoingCallThreadLocalContextProtocol {
+    let media: RustCallMedia
+    private var networkType: NetworkType
+
+    init(media: RustCallMedia, networkType: NetworkType) {
+        self.media = media
+        self.networkType = networkType
+    }
+
+    func nativeSetNetworkType(_ type: NetworkType) { networkType = type }
+    func nativeSetIsMuted(_ value: Bool) { media.setMuted(value) }
+    func nativeSetIsLowBatteryLevel(_ value: Bool) { media.setLowBattery(value) }
+    func nativeRequestVideo(_ capturer: OngoingCallVideoCapturer) { }
+    func nativeSetRequestedVideoAspect(_ aspect: Float) { }
+    func nativeDisableVideo() { }
+    func nativeBeginTermination() { media.stop() }
+    func nativeDebugInfo() -> String { "tgcalls-rs / Wasmi / TURN UDP" }
+    func nativeVersion() -> String { "tgcalls-rs" }
+    func nativeGetDerivedState() -> Data { Data() }
+    func addExternalAudioData(data: Data) { media.sendExternalAudio(data) }
+    func nativeSetIsAudioSessionActive(isActive: Bool) { media.setAudioActive(isActive) }
+    func nativeDeactivateIncomingAudio() { media.setAudioActive(false) }
+    func nativeReceiveSignaling(_ data: Data) { media.receiveSignaling(data) }
+
+    func nativeStop(_ completion: @escaping (String?, Int64, Int64, Int64, Int64) -> Void) {
+        let traffic = media.stop()
+        if case .wifi = networkType {
+            completion(nil, traffic.sent, traffic.received, 0, 0)
+        } else {
+            completion(nil, 0, 0, traffic.sent, traffic.received)
+        }
+    }
+}
+#endif
 
 private final class OngoingCallThreadLocalContextHolder {
     let context: OngoingCallThreadLocalContextProtocol
@@ -654,6 +691,10 @@ public final class OngoingCallVideoCapturer {
 }
 
 extension OngoingCallThreadLocalContextWebrtc: OngoingCallThreadLocalContextProtocol {
+    func nativeReceiveSignaling(_ data: Data) {
+        self.addSignaling(data)
+    }
+
     func nativeSetNetworkType(_ type: NetworkType) {
         self.setNetworkType(ongoingNetworkTypeForTypeWebrtc(type))
     }
@@ -922,6 +963,7 @@ public final class OngoingCallContext {
     private let audioSessionDisposable = MetaDisposable()
     private let audioSessionActiveDisposable = MetaDisposable()
     private var networkTypeDisposable: Disposable?
+    private var requestedMute = false
     
     public static var maxLayer: Int32 {
         return OngoingCallThreadLocalContextWebrtc.maxLayer()
@@ -933,7 +975,28 @@ public final class OngoingCallContext {
     
     private let audioDevice: AudioDevice?
     
+    public static var callsRustAvailable: Bool {
+        #if os(iOS) && TGCALLS_RUST
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    public static var callsRustSelected: Bool {
+        #if os(iOS) && TGCALLS_RUST
+        return RustCallMedia.selected
+        #else
+        return false
+        #endif
+    }
+
     public static func versions(includeExperimental: Bool, includeReference: Bool) -> [(version: String, supportsVideo: Bool)] {
+        #if os(iOS) && TGCALLS_RUST
+        if Self.callsRustSelected {
+            return RustCallMedia.versions.map { ($0, false) }
+        }
+        #endif
         var result: [(version: String, supportsVideo: Bool)] = []
         result.append(contentsOf: OngoingCallThreadLocalContextWebrtc.versions(withIncludeReference: includeReference).map { version -> (version: String, supportsVideo: Bool) in
             return (version, true)
@@ -961,6 +1024,9 @@ public final class OngoingCallContext {
         let queue = self.queue
         
         cleanupCallLogs(account: account)
+        #if os(iOS) && TGCALLS_RUST
+        let useRust = Self.callsRustSelected
+        #endif
         
         self.audioSessionDisposable.set((audioSessionActive
         |> filter { $0 }
@@ -1044,11 +1110,7 @@ public final class OngoingCallContext {
                                 guard let strongSelf = self else {
                                     return
                                 }
-                                strongSelf.withContext { context in
-                                    if let context = context as? OngoingCallThreadLocalContextWebrtc {
-                                        context.addSignaling(data)
-                                    }
-                                }
+                                strongSelf.withContext { $0.nativeReceiveSignaling(data) }
                             })
                         })
                     }
@@ -1091,6 +1153,53 @@ public final class OngoingCallContext {
                 }
                 #endif*/
                 
+                #if os(iOS) && TGCALLS_RUST
+                if useRust {
+                    let update: (OngoingCallContextState.State, Bool, Bool) -> Void = { [weak self] state, muted, lowBattery in
+                        self?.contextState.set(.single(OngoingCallContextState(state: state, videoState: .notAvailable, remoteVideoState: .inactive, remoteAudioState: muted ? .muted : .active, remoteBatteryLevel: lowBattery ? .low : .normal)))
+                        self?.receptionPromise.set(.single(state == .connected ? 4 : 0))
+                    }
+                    guard RustCallMedia.versions.contains(version), video == nil, voipProxyServer == nil else {
+                        update(.failed, false, false)
+                        return
+                    }
+                    let ice = unfilteredConnections.flatMap { connection -> [RustIceServer] in
+                        guard case let .webRtcReflector(server) = connection, server.hasTurn, let port = UInt16(exactly: server.port) else { return [] }
+                        return [server.ip, server.ipv6].compactMap { RustCallEndpoint($0, port) }.map { endpoint in
+                            RustIceServer(endpoint: endpoint, username: server.username, password: server.password, turn: true)
+                        }
+                    }
+                    do {
+                        let media = try RustCallMedia(queue: queue.queue, group: false, ice: ice)
+                        media.stateChanged = update
+                        media.signaling = { [weak self] data in self?.sendSignalingData(data: data) }
+                        media.setMuted(strongSelf.requestedMute)
+                        update(.initializing, false, false)
+                        try media.startPersonal(key: key, outgoing: isOutgoing)
+                        let context = RustPersonalAudioContext(media: media, networkType: initialNetworkType)
+                        strongSelf.contextRef = Unmanaged.passRetained(OngoingCallThreadLocalContextHolder(context))
+                        strongSelf.audioSessionActiveDisposable.set((audioSessionActive |> deliverOn(queue)).start(next: { [weak media] active in
+                            media?.setAudioActive(active)
+                        }))
+                        strongSelf.networkTypeDisposable = (updatedNetworkType |> deliverOn(queue)).start(next: { [weak context] type in
+                            context?.nativeSetNetworkType(type)
+                        })
+                        strongSelf.signalingDataDisposable = callSessionManager.beginReceivingCallSignalingData(internalId: internalId, { [weak self] dataList in
+                            queue.async {
+                                guard let self else { return }
+                                self.signalingDataPipe.putNext(dataList)
+                                self.withContext { context in
+                                    for packet in dataList { context.nativeReceiveSignaling(packet) }
+                                }
+                            }
+                        })
+                        strongSelf.signalingConnectionManager?.with { $0.start() }
+                    } catch {
+                        update(.failed, false, false)
+                    }
+                    return
+                }
+                #endif
                 let context = OngoingCallThreadLocalContextWebrtc(
                     version: version,
                     customParameters: customParameters,
@@ -1221,11 +1330,7 @@ public final class OngoingCallContext {
                         self.signalingDataPipe.putNext(dataList)
                         
                         self.withContext { context in
-                            if let context = context as? OngoingCallThreadLocalContextWebrtc {
-                                for data in dataList {
-                                    context.addSignaling(data)
-                                }
-                            }
+                            for data in dataList { context.nativeReceiveSignaling(data) }
                         }
                     }
                 })
@@ -1326,8 +1431,9 @@ public final class OngoingCallContext {
     }
     
     public func setIsMuted(_ value: Bool) {
-        self.withContext { context in
-            context.nativeSetIsMuted(value)
+        self.queue.async {
+            self.requestedMute = value
+            self.contextRef?.takeUnretainedValue().context.nativeSetIsMuted(value)
         }
     }
     

@@ -406,6 +406,8 @@ def clean(bazel, arguments):
 
 
 def resolve_codesigning(arguments, base_path, build_configuration, provisioning_profiles_path, additional_codesigning_output_path) -> ResolvedCodesigningData:
+    if getattr(arguments, 'unsignedDevice', False):
+        return ResolvedCodesigningData(aps_environment='development', use_xcode_managed_codesigning=False)
     profile_source = None
     if arguments.gitCodesigningRepository is not None:
         password = os.getenv('TELEGRAM_CODESIGNING_GIT_PASSWORD')
@@ -634,8 +636,12 @@ def build(bazel, arguments):
     )
 
     bazel_command_line.set_configuration(arguments.configuration)
-    if arguments.configuration == 'debug_sim_arm64':
+    if arguments.unsignedDevice and arguments.configuration not in ('debug_arm64', 'release_arm64'):
+        raise Exception('--unsignedDevice requires an arm64 device configuration')
+    if arguments.configuration == 'debug_sim_arm64' or arguments.unsignedDevice:
         bazel_command_line.set_disable_provisioning_profiles()
+    if arguments.unsignedDevice:
+        bazel_command_line.common_args.append('--features=disable_legacy_signing')
     if arguments.embedWatchApp:
         if arguments.configuration in ('debug_arm64', 'release_arm64'):
             if arguments.watchApiId is None or arguments.watchApiHash is None:
@@ -657,6 +663,8 @@ def build(bazel, arguments):
     bazel_command_line.set_profile_swift(arguments.profileSwift)
 
     bazel_command_line.set_split_swiftmodules(arguments.enableParallelSwiftmoduleGeneration)
+    if arguments.enableCallsRust:
+        bazel_command_line.common_args.append('--define=tgcalls_rust=true')
 
     bazel_command_line.invoke_build()
 
@@ -820,7 +828,7 @@ def add_vm_lock_arguments(current_parser):
     )
 
 
-def add_codesigning_common_arguments(current_parser: argparse.ArgumentParser):
+def add_codesigning_common_arguments(current_parser: argparse.ArgumentParser, allow_unsigned=False):
     configuration_group = current_parser.add_mutually_exclusive_group(required=True)
     configuration_group.add_argument(
         '--configurationPath',
@@ -832,6 +840,8 @@ def add_codesigning_common_arguments(current_parser: argparse.ArgumentParser):
     )
 
     codesigning_group = current_parser.add_mutually_exclusive_group(required=True)
+    if allow_unsigned:
+        codesigning_group.add_argument('--unsignedDevice', action='store_true', help='Build an iOS device archive for manual signing.')
     codesigning_group.add_argument(
         '--gitCodesigningRepository',
         help='''
@@ -882,8 +892,8 @@ def add_codesigning_common_arguments(current_parser: argparse.ArgumentParser):
     )
 
 
-def add_project_and_build_common_arguments(current_parser: argparse.ArgumentParser):
-    add_codesigning_common_arguments(current_parser=current_parser)
+def add_project_and_build_common_arguments(current_parser: argparse.ArgumentParser, allow_unsigned=False):
+    add_codesigning_common_arguments(current_parser=current_parser, allow_unsigned=allow_unsigned)
 
 
 if __name__ == '__main__':
@@ -1041,7 +1051,7 @@ if __name__ == '__main__':
         help='Build number.',
         metavar='number'
     )
-    add_project_and_build_common_arguments(buildParser)
+    add_project_and_build_common_arguments(buildParser, allow_unsigned=True)
     buildParser.add_argument(
         '--configuration',
         choices=[
@@ -1052,6 +1062,11 @@ if __name__ == '__main__':
         ],
         required=True,
         help='Build configuration'
+    )
+    buildParser.add_argument(
+        '--enableCallsRust',
+        action='store_true',
+        help='Link the pinned tgcalls-rs artifacts prepared by build-system/prepare-tgcalls-rust.sh.'
     )
     buildParser.add_argument(
         '--enableParallelSwiftmoduleGeneration',

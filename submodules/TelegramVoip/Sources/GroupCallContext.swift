@@ -477,9 +477,19 @@ public final class OngoingGroupCallContext {
     
     private final class Impl {
         let queue: Queue
-        let context: GroupCallThreadLocalContext
+        let context: GroupCallThreadLocalContext?
 #if os(iOS)
         let audioDevice: OngoingCallContext.AudioDevice?
+#endif
+#if os(iOS) && TGCALLS_RUST
+        private var rustRequested = false
+        private var rustMedia: RustCallMedia?
+        private var rustAudioActive = false
+        private var rustMuted = true
+        private var rustNoiseSuppression = false
+        private var rustRejoin: (() -> Void)?
+        private var rustSources: Set<UInt32> = []
+        private var rustTransportReady = false
 #endif
         
         let joinPayload = Promise<(String, UInt32)>()
@@ -528,6 +538,23 @@ public final class OngoingGroupCallContext {
             
             self.tempStatsLogFile = EngineTempBox.shared.tempFile(fileName: "CallStats.json")
             let tempStatsLogPath = self.tempStatsLogFile.path
+
+#if os(iOS) && TGCALLS_RUST
+            if RustCallMedia.selected, !isConference, encryptionContext == nil, !isStream,
+               video == nil, videoContentType != .screencast, !disableAudioInput {
+                self.audioDevice = nil
+                self.context = nil
+                self.rustRequested = true
+                self.rustRejoin = rejoinNeeded
+                self.rustNoiseSuppression = enableNoiseSuppression
+                self.prepareRustGroup()
+                self.audioSessionActiveDisposable.set((audioSessionActive |> deliverOn(queue)).start(next: { [weak self] active in
+                    self?.rustAudioActive = active
+                    self?.rustMedia?.setAudioActive(active)
+                }))
+                return
+            }
+#endif
             
 #if os(iOS)
             if sharedAudioDevice == nil && !isStream {
@@ -823,13 +850,13 @@ public final class OngoingGroupCallContext {
             }
             
             let signalBars = self.signalBars
-            self.context.signalBarsChanged = { value in
+            self.context?.signalBarsChanged = { value in
                 queue.async {
                     signalBars.set(value)
                 }
             }
             
-            self.context.emitJoinPayload({ [weak self] payload, ssrc in
+            self.context?.emitJoinPayload({ [weak self] payload, ssrc in
                 queue.async {
                     guard let strongSelf = self else {
                         return
@@ -846,7 +873,7 @@ public final class OngoingGroupCallContext {
                     }
                     //                self.audioDevice?.setManualAudioSessionIsActive(isActive)
                     #if os(iOS)
-                    self.context.setManualAudioSessionIsActive(isActive)
+                    self.context?.setManualAudioSessionIsActive(isActive)
                     #endif
                 }))
             }
@@ -855,9 +882,61 @@ public final class OngoingGroupCallContext {
         deinit {
             self.audioSessionActiveDisposable.dispose()
         }
+
+#if os(iOS) && TGCALLS_RUST
+        private func prepareRustGroup() {
+            rustMedia?.stop()
+            rustMedia = nil
+            rustTransportReady = false
+            rustSources.removeAll()
+            networkState.set(NetworkState(isConnected: false, isTransitioningFromBroadcastToRtc: false, isBroadcast: false))
+            signalBars.set(0)
+            joinPayload.set(.never())
+            do {
+                let media = try RustCallMedia(queue: queue.queue, group: true)
+                media.setMuted(rustMuted)
+                media.setNoiseSuppression(rustNoiseSuppression)
+                media.setAudioActive(rustAudioActive)
+                media.stateChanged = { [weak self] state, _, _ in
+                    self?.networkState.set(NetworkState(isConnected: state == .connected, isTransitioningFromBroadcastToRtc: false, isBroadcast: false))
+                    self?.signalBars.set(state == .connected ? 4 : 0)
+                }
+                media.levels = { [weak self] levels in
+                    self?.audioLevels.putNext(levels.map { (AudioLevelKey.source($0.0), $0.1, $0.2) })
+                    self?.ssrcActivities.putNext(levels.compactMap { $0.2 ? $0.0 : nil })
+                }
+                media.networkChanged = { [weak self] in self?.rustRejoin?() }
+                let payload = try media.joinPayload()
+                rustMedia = media
+                joinPayload.set(.single(payload))
+            } catch {
+                Logger.shared.log("TgCallsRust", "Failed to initialize the group media engine")
+            }
+        }
+
+        private func applyRustSources() {
+            guard rustTransportReady, let media = rustMedia else { return }
+            do { try media.addSources(Array(rustSources)) }
+            catch { rustRejoin?() }
+        }
+#endif
         
         func setJoinResponse(payload: String) {
-            self.context.setJoinResponsePayload(payload)
+#if os(iOS) && TGCALLS_RUST
+            if rustRequested {
+                guard let media = rustMedia else { return }
+                do {
+                    try media.connectGroup(payload)
+                    rustTransportReady = true
+                    applyRustSources()
+                } catch {
+                    media.stop()
+                    Logger.shared.log("TgCallsRust", "The group media transport could not be started")
+                }
+                return
+            }
+#endif
+            self.context?.setJoinResponsePayload(payload)
         }
         
         func setAudioStreamData(audioStreamData: AudioStreamData?) {
@@ -868,30 +947,43 @@ public final class OngoingGroupCallContext {
         }
         
         func addSsrcs(ssrcs: [UInt32]) {
+#if os(iOS) && TGCALLS_RUST
+            if rustRequested {
+                rustSources.formUnion(ssrcs)
+                applyRustSources()
+            }
+#endif
         }
         
         func removeSsrcs(ssrcs: [UInt32]) {
             if ssrcs.isEmpty {
                 return
             }
-            self.context.removeSsrcs(ssrcs.map { ssrc in
+#if os(iOS) && TGCALLS_RUST
+            rustSources.subtract(ssrcs)
+            rustMedia?.removeSources(ssrcs)
+#endif
+            self.context?.removeSsrcs(ssrcs.map { ssrc in
                 return ssrc as NSNumber
             })
         }
 
         func removeIncomingVideoSource(_ ssrc: UInt32) {
-            self.context.removeIncomingVideoSource(ssrc)
+            self.context?.removeIncomingVideoSource(ssrc)
         }
         
         func setVolume(ssrc: UInt32, volume: Double) {
-            self.context.setVolumeForSsrc(ssrc, volume: volume)
+#if os(iOS) && TGCALLS_RUST
+            rustMedia?.setVolume(ssrc: ssrc, volume: volume)
+#endif
+            self.context?.setVolumeForSsrc(ssrc, volume: volume)
         }
 
         func setRequestedVideoChannels(_ channels: [VideoChannel]) {
             if self.currentRequestedVideoChannels != channels {
                 self.currentRequestedVideoChannels = channels
 
-                self.context.setRequestedVideoChannels(channels.map { channel -> OngoingGroupCallRequestedVideoChannel in
+                self.context?.setRequestedVideoChannels(channels.map { channel -> OngoingGroupCallRequestedVideoChannel in
                     let mappedMinQuality: OngoingGroupCallRequestedVideoQuality
                     switch channel.minQuality {
                     case .thumbnail:
@@ -927,7 +1019,12 @@ public final class OngoingGroupCallContext {
         }
         
         func stop(account: Account?, reportCallId: CallId?, debugLog: Promise<String?>) {
-            self.context.stop()
+#if os(iOS) && TGCALLS_RUST
+            rustMedia?.stop()
+            rustMedia = nil
+            rustTransportReady = false
+#endif
+            self.context?.stop()
             
             let logPath = self.logPath
             var statsLogPath = ""
@@ -939,7 +1036,7 @@ public final class OngoingGroupCallContext {
             debugLog.set(.single(nil))
             
             let queue = self.queue
-            self.context.stop({
+            self.context?.stop({
                 queue.async {
                     if !statsLogPath.isEmpty, let account {
                         let logsPath = callLogsPath(account: account)
@@ -965,6 +1062,21 @@ public final class OngoingGroupCallContext {
         }
         
         func setConnectionMode(_ connectionMode: ConnectionMode, keepBroadcastConnectedIfWasEnabled: Bool, isUnifiedBroadcast: Bool) {
+#if os(iOS) && TGCALLS_RUST
+            if rustRequested {
+                switch connectionMode {
+                case .none:
+                    prepareRustGroup()
+                case .rtc:
+                    break
+                case .broadcast:
+                    rustMedia?.stop()
+                    rustTransportReady = false
+                    networkState.set(NetworkState(isConnected: false, isTransitioningFromBroadcastToRtc: false, isBroadcast: true))
+                }
+                return
+            }
+#endif
             let mappedConnectionMode: OngoingCallConnectionMode
             switch connectionMode {
             case .none:
@@ -974,13 +1086,13 @@ public final class OngoingGroupCallContext {
             case .broadcast:
                 mappedConnectionMode = .broadcast
             }
-            self.context.setConnectionMode(mappedConnectionMode, keepBroadcastConnectedIfWasEnabled: keepBroadcastConnectedIfWasEnabled, isUnifiedBroadcast: isUnifiedBroadcast)
+            self.context?.setConnectionMode(mappedConnectionMode, keepBroadcastConnectedIfWasEnabled: keepBroadcastConnectedIfWasEnabled, isUnifiedBroadcast: isUnifiedBroadcast)
             
             if (mappedConnectionMode != .rtc) {
                 self.joinPayload.set(.never())
                 
                 let queue = self.queue
-                self.context.emitJoinPayload({ [weak self] payload, ssrc in
+                self.context?.emitJoinPayload({ [weak self] payload, ssrc in
                     queue.async {
                         guard let strongSelf = self else {
                             return
@@ -993,17 +1105,25 @@ public final class OngoingGroupCallContext {
         
         func setIsMuted(_ isMuted: Bool) {
             self.isMuted.set(isMuted)
-            self.context.setIsMuted(isMuted)
+#if os(iOS) && TGCALLS_RUST
+            rustMuted = isMuted
+            rustMedia?.setMuted(isMuted)
+#endif
+            self.context?.setIsMuted(isMuted)
         }
 
         func setIsNoiseSuppressionEnabled(_ isNoiseSuppressionEnabled: Bool) {
             self.isNoiseSuppressionEnabled.set(isNoiseSuppressionEnabled)
-            self.context.setIsNoiseSuppressionEnabled(isNoiseSuppressionEnabled)
+#if os(iOS) && TGCALLS_RUST
+            rustNoiseSuppression = isNoiseSuppressionEnabled
+            rustMedia?.setNoiseSuppression(isNoiseSuppressionEnabled)
+#endif
+            self.context?.setIsNoiseSuppressionEnabled(isNoiseSuppressionEnabled)
         }
         
         func requestVideo(_ capturer: OngoingCallVideoCapturer?) {
             let queue = self.queue
-            self.context.requestVideo(capturer?.impl, completion: { [weak self] payload, ssrc in
+            self.context?.requestVideo(capturer?.impl, completion: { [weak self] payload, ssrc in
                 queue.async {
                     guard let strongSelf = self else {
                         return
@@ -1015,7 +1135,7 @@ public final class OngoingGroupCallContext {
         
         public func disableVideo() {
             let queue = self.queue
-            self.context.disableVideo({ [weak self] payload, ssrc in
+            self.context?.disableVideo({ [weak self] payload, ssrc in
                 queue.async {
                     guard let strongSelf = self else {
                         return
@@ -1026,15 +1146,19 @@ public final class OngoingGroupCallContext {
         }
         
         func switchAudioInput(_ deviceId: String) {
-            self.context.switchAudioInput(deviceId)
+            self.context?.switchAudioInput(deviceId)
         }
         
         func switchAudioOutput(_ deviceId: String) {
-            self.context.switchAudioOutput(deviceId)
+            self.context?.switchAudioOutput(deviceId)
         }
         
         func makeIncomingVideoView(endpointId: String, requestClone: Bool, completion: @escaping (OngoingCallContextPresentationCallVideoView?, OngoingCallContextPresentationCallVideoView?) -> Void) {
-            self.context.makeIncomingVideoView(withEndpointId: endpointId, requestClone: requestClone, completion: { mainView, cloneView in
+            guard let context = self.context else {
+                completion(nil, nil)
+                return
+            }
+            context.makeIncomingVideoView(withEndpointId: endpointId, requestClone: requestClone, completion: { mainView, cloneView in
                 if let mainView = mainView {
                     #if os(macOS)
                     let mainVideoView = OngoingCallContextPresentationCallVideoView(
@@ -1088,10 +1212,10 @@ public final class OngoingGroupCallContext {
                 let disposable = MetaDisposable()
 
                 queue.async {
-                    guard let strongSelf = self else {
+                    guard let context = self?.context else {
                         return
                     }
-                    let innerDisposable = strongSelf.context.addVideoOutput(withEndpointId: endpointId) { videoFrameData in
+                    let innerDisposable = context.addVideoOutput(withEndpointId: endpointId) { videoFrameData in
                         subscriber.putNext(OngoingGroupCallContext.VideoFrameData(frameData: videoFrameData))
                     }
                     disposable.set(ActionDisposable {
@@ -1104,11 +1228,18 @@ public final class OngoingGroupCallContext {
         }
 
         func addExternalAudioData(data: Data) {
-            self.context.addExternalAudioData(data)
+#if os(iOS) && TGCALLS_RUST
+            rustMedia?.sendExternalAudio(data)
+#endif
+            self.context?.addExternalAudioData(data)
         }
 
         func getStats(completion: @escaping (Stats) -> Void) {
-            self.context.getStats({ stats in
+            guard let context = self.context else {
+                completion(Stats(incomingVideoStats: [:]))
+                return
+            }
+            context.getStats({ stats in
                 var incomingVideoStats: [String: Stats.IncomingVideoStats] = [:]
                 for (key, value) in stats.incomingVideoStats {
                     incomingVideoStats[key] = Stats.IncomingVideoStats(receivingQuality: Int(value.receivingQuality), availableQuality: Int(value.availableQuality))
@@ -1125,7 +1256,7 @@ public final class OngoingGroupCallContext {
 //            if let audioDevice = self.audioDevice {
 //                audioDevice.setTone(mappedTone)
 //            } else {
-                self.context.setTone(mappedTone)
+                self.context?.setTone(mappedTone)
 //            }
             #endif
             
@@ -1133,7 +1264,7 @@ public final class OngoingGroupCallContext {
         
         func activateIncomingAudio() {
             #if os(iOS)
-            self.context.activateIncomingAudio()
+            self.context?.activateIncomingAudio()
             #endif
         }
     }
